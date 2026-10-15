@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" role="img" aria-labelledby="t">
+  <title id="t">OpenMem icon: a blue memory chip with a usage ring and a clean sparkle on a white tile</title>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#EEF1FB"/>
+    </linearGradient>
+    <linearGradient id="chip" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#2563EB"/>
+      <stop offset="0.55" stop-color="#4F46E5"/>
+      <stop offset="1" stop-color="#7C3AED"/>
+    </linearGradient>
+    <linearGradient id="ring" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#67E8F9"/>
+      <stop offset="1" stop-color="#86EFAC"/>
+    </linearGradient>
+    <filter id="tile" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="16" stdDeviation="20" flood-color="#1E2A5A" flood-opacity="0.22"/>
+    </filter>
+    <filter id="lift" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="14" stdDeviation="16" flood-color="#4338CA" flood-opacity="0.35"/>
+    </filter>
+    <g id="pins">
+      <rect x="352" y="236" width="32" height="76" rx="12"/>
+      <rect x="424" y="236" width="32" height="76" rx="12"/>
+      <rect x="496" y="236" width="32" height="76" rx="12"/>
+      <rect x="568" y="236" width="32" height="76" rx="12"/>
+      <rect x="640" y="236" width="32" height="76" rx="12"/>
+    </g>
+  </defs>
+
+  <!-- macOS icon grid: 824 px rounded square centered on 1024 canvas -->
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#bg)" filter="url(#tile)"/>
+  <rect x="101.5" y="101.5" width="821" height="821" rx="184" fill="none" stroke="#DCE2F2" stroke-width="3"/>
+
+  <g fill="#A5B4FC">
+    <use href="#pins"/>
+    <use href="#pins" transform="translate(0 476)"/>
+    <use href="#pins" transform="rotate(90 512 512)"/>
+    <use href="#pins" transform="rotate(-90 512 512)"/>
+  </g>
+
+  <rect x="292" y="292" width="440" height="440" rx="76" fill="url(#chip)" filter="url(#lift)"/>
+  <circle cx="342" cy="342" r="14" fill="#FFFFFF" fill-opacity="0.55"/>
+
+  <circle cx="512" cy="512" r="138" fill="none" stroke="#FFFFFF" stroke-opacity="0.22" stroke-width="36"/>
+  <circle cx="512" cy="512" r="138" fill="none" stroke="url(#ring)" stroke-width="36" stroke-linecap="round"
+          stroke-dasharray="607 260" transform="rotate(-90 512 512)"/>
+
+  <path d="M512 430 C522 490 534 502 594 512 C534 522 522 534 512 594 C502 534 490 522 430 512 C490 502 502 490 512 430 Z" fill="#FFFFFF"/>
+  <path d="M760 196 C765 226 771 232 801 237 C771 242 765 248 760 278 C755 248 749 242 719 237 C749 232 755 226 760 196 Z" fill="#6366F1"/>
+</svg>
