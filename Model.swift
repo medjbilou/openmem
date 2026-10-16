@@ -67,14 +67,16 @@ enum Cat: String { case junk, downloads, dups, apps, large }
     func freeMemory(auto: Bool = false) {
         guard !freeing else { return }
         freeing = true
-        let before = readMem().free
+        // macOS refills the free list right away, so count what left used + cached, not what landed in free.
+        let held = { let m = readMem(); return m.used + m.cached }
+        let before = held()
         Task.detached {
             let ok = Purge.run(dropFileCache: !auto)
             await MainActor.run {
                 self.freeing = false
                 self.passwordless = Purge.passwordless
                 guard ok else { self.status = "Free up cancelled"; return }
-                let freed = max(0, readMem().free - before)
+                let freed = max(0, before - held())
                 self.lastCleanBytes = freed
                 self.lastCleanAt = Date().timeIntervalSince1970
                 self.tick()
