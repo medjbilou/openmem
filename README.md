@@ -69,8 +69,9 @@ The safety rules live in code (`Safety` in `Disk.swift`), so the UI can't skip t
 
 | Permission | Why | When |
 | --- | --- | --- |
-| Administrator password | Freeing memory runs macOS's own `/usr/sbin/purge`, which needs root | Once (see below) |
+| Administrator password | Freeing memory runs macOS's own `purge` and `memory_pressure`, which need root | Once (see below) |
 | Desktop, Documents, Downloads access | To find duplicates and large files | First disk scan |
+| Control Finder | Uninstalling moves the app to the Trash through Finder, which asks for your password if an installer made root the owner of the app. Empty Trash also uses Finder. | First uninstall or Empty Trash |
 | Notifications | High memory alerts and "memory freed" messages | First launch |
 | Full Disk Access (optional) | To show the size of the Trash. Without it the row shows `-` | Never asked. Click Allow access next to Uncleaned Trash, then Rescan |
 
@@ -131,7 +132,6 @@ Views.swift    SwiftUI interface
 
 - Freeing memory flushes caches. It doesn't add memory your Mac doesn't have. macOS manages memory well on its own, so a cleanup helps most when an app has been leaking memory or before you start something heavy.
 - The build is signed ad hoc, so macOS asks for folder access again after each rebuild.
-- Some apps installed by root-owned installers can't be moved by the app. Drag those to the Trash in Finder.
 
 ## Contributing
 

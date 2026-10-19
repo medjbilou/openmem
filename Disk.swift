@@ -80,10 +80,18 @@ func moveToTrash(_ items: [Item]) -> TrashResult {
     var r = TrashResult()
     for i in items {
         guard Safety.canTrash(i.url) else { r.failed.append(i.name); continue }
-        do { try fm.trashItem(at: i.url, resultingItemURL: nil); r.moved += 1; r.bytes += i.size }
-        catch { r.failed.append(i.name) }
+        let ok = i.url.pathExtension == "app" ? finderTrash(i.url) : (try? fm.trashItem(at: i.url, resultingItemURL: nil)) != nil
+        if ok { r.moved += 1; r.bytes += i.size } else { r.failed.append(i.name) }
     }
     return r
+}
+
+// Apps go through Finder: it asks for the admin password when root owns the app (pkg installers),
+// and macOS lets Finder delete apps, while App Management blocks other apps from doing it.
+// The path is passed as an argument, never spliced into the script.
+func finderTrash(_ url: URL) -> Bool {
+    sh("/usr/bin/osascript", ["-e", "on run a", "-e", "tell application \"Finder\" to delete (POSIX file (item 1 of a) as alias)",
+                              "-e", "end run", url.path])
 }
 
 private let sizeKeys: Set<URLResourceKey> = [.totalFileAllocatedSizeKey, .isRegularFileKey]
@@ -178,13 +186,19 @@ func scanDisk(largeMB: Double, runningIDs: Set<String>) -> DiskScan {
     s.dups = Array(s.dups.sorted { $0.waste > $1.waste }.prefix(200))
 
     for root in appRoots {
-        for u in children(root) where u.pathExtension == "app" {
+        // Top level plus one folder deep, for vendor folders such as "/Applications/Python 3.12".
+        let top = children(root)
+        let bundles = top + top.filter { $0.pathExtension != "app" }.flatMap(children)
+        for u in bundles where u.pathExtension == "app" {
             guard let id = Bundle(url: u)?.bundleIdentifier, !id.hasPrefix("com.apple."), id != ownID else { continue }
             let leftovers = leftoverPatterns.map { home.appending(path: "\($0.dir)/\(id)\($0.suffix)") }
                 .filter { fm.fileExists(atPath: $0.path) }.map { Item(url: $0, size: allocSize($0)) }
             s.apps.append(AppEntry(url: u, name: u.deletingPathExtension().lastPathComponent, bundleID: id, size: allocSize(u), leftovers: leftovers))
         }
     }
+    // Two copies of one app share its support files: uninstalling one copy must not take the other copy's data.
+    let copies = Dictionary(grouping: s.apps, by: \.bundleID)
+    s.apps = s.apps.map { copies[$0.bundleID]!.count > 1 ? AppEntry(url: $0.url, name: $0.name, bundleID: $0.bundleID, size: $0.size, leftovers: []) : $0 }
     s.apps.sort { $0.total > $1.total }
     s.done = true
     return s
