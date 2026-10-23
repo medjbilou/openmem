@@ -37,6 +37,7 @@ enum Cat: String { case junk, downloads, dups, apps, large }
     private var lastAuto = Date.distantPast
     private var wasHigh = false
     private var lastScan = Date.distantPast
+    private var rescanAgain = false
     private var timer: Timer?
 
     func start() {
@@ -111,10 +112,13 @@ enum Cat: String { case junk, downloads, dups, apps, large }
     }
 
     func rescan() {
-        guard !scanning else { return }
+        // A cleanup during a scan must still refresh: run once more when the current scan ends.
+        guard !scanning else { rescanAgain = true; return }
         scanning = true
         lastScan = Date()
-        if !disk.done { disk = volumeStats() }  // show disk % instantly, before the slow walk
+        let v = volumeStats()  // show free space instantly, before the slow walk
+        disk.total = v.total
+        disk.available = v.available
         let mb = largeMB
         let running = Set(NSWorkspace.shared.runningApplications.compactMap(\.bundleIdentifier))
         Task.detached(priority: .utility) {
@@ -122,6 +126,7 @@ enum Cat: String { case junk, downloads, dups, apps, large }
             await MainActor.run {
                 self.disk = s
                 self.scanning = false
+                if self.rescanAgain { self.rescanAgain = false; self.rescan() }
                 self.selected.formIntersection(Set(s.downloads.map(\.url) + s.large.map(\.url) + s.dups.flatMap { $0.files.map(\.url) }))
             }
         }
@@ -138,6 +143,7 @@ enum Cat: String { case junk, downloads, dups, apps, large }
         selected.subtract(items.map(\.url))
         status = "Moved \(r.moved) items (\(fmtDisk(r.bytes))) to Trash"
             + (r.failed.isEmpty ? "" : ". Skipped \(r.failed.count): \(r.failed.prefix(3).joined(separator: ", "))")
+            + (r.moved > 0 ? ". Empty the Trash to free the space." : "")
         rescan()
     }
 

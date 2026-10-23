@@ -12,8 +12,10 @@ let trashDir = home.appending(path: ".Trash")
 let userRoots = ["Desktop", "Documents", "Downloads", "Movies", "Music", "Pictures"].map { home.appending(path: $0) }
 let appRoots = [URL(fileURLWithPath: "/Applications"), home.appending(path: "Applications")]
 let ownID = Bundle.main.bundleIdentifier ?? "io.github.medjbilou.openmem"
+// Like Windows %TEMP%: the per-user temp folder, /tmp, and app logs. Not caches.
+let tempDirs = [URL(fileURLWithPath: NSTemporaryDirectory()), URL(fileURLWithPath: "/private/tmp"), home.appending(path: "Library/Logs")]
 
-// Exact bundle-id leftovers only. Name-based matching is too easy to get wrong.
+// Exact bundle-id leftovers. Exact app-name folders are added in appLeftovers.
 let leftoverPatterns: [(dir: String, suffix: String)] = [
     ("Library/Application Support", ""), ("Library/Caches", ""), ("Library/Containers", ""),
     ("Library/HTTPStorages", ""), ("Library/WebKit", ""), ("Library/Logs", ""),
@@ -43,16 +45,17 @@ struct AppEntry: Identifiable {
 
 struct DiskScan {
     var total: Int64 = 0, available: Int64 = 0
-    var caches: [Item] = [], downloads: [Item] = [], trash: Int64? = nil
+    var caches: [Item] = [], downloads: [Item] = [], temp: [Item] = [], trash: Int64? = nil
     var dups: [DupGroup] = [], apps: [AppEntry] = [], large: [Item] = []
     var done = false
 
     var pct: Int { total > 0 ? Int(Double(total - available) / Double(total) * 100) : 0 }
     var cachesSize: Int64 { caches.reduce(0) { $0 + $1.size } }
     var downloadsSize: Int64 { downloads.reduce(0) { $0 + $1.size } }
-    var junkSize: Int64 { cachesSize + downloadsSize + (trash ?? 0) }
+    var tempSize: Int64 { temp.reduce(0) { $0 + $1.size } }
+    var junkSize: Int64 { cachesSize + downloadsSize + tempSize + (trash ?? 0) }
     var dupSize: Int64 { dups.reduce(0) { $0 + $1.waste } }
-    var appsSize: Int64 { apps.reduce(0) { $0 + $1.size } }
+    var appsSize: Int64 { apps.reduce(0) { $0 + $1.total } }  // apps plus their data, same as each row
     var appDataSize: Int64 { apps.reduce(0) { $0 + $1.total - $1.size } }
     var largeSize: Int64 { large.reduce(0) { $0 + $1.size } }
 }
@@ -60,7 +63,7 @@ struct DiskScan {
 // Trust boundary: nothing leaves these folders, roots themselves are never touched,
 // and everything goes to the Trash (recoverable). Only "Empty Trash" is permanent.
 enum Safety {
-    static let roots = ([cachesDir] + userRoots + appRoots + leftoverPatterns.map { home.appending(path: $0.dir) })
+    static let roots = ([cachesDir] + userRoots + appRoots + tempDirs + leftoverPatterns.map { home.appending(path: $0.dir) })
         .map { $0.resolvingSymlinksInPath().path }
 
     static func canTrash(_ url: URL) -> Bool {
@@ -127,7 +130,8 @@ private func isProtectedDir(_ u: URL) -> Bool {
 
 func volumeStats() -> DiskScan {
     var s = DiskScan()
-    if let v = try? home.resourceValues(forKeys: [.volumeTotalCapacityKey, .volumeAvailableCapacityForImportantUsageKey]) {
+    // A new URL each time: URL caches resource values, so reusing `home` froze the free space at its first reading.
+    if let v = try? URL(fileURLWithPath: home.path).resourceValues(forKeys: [.volumeTotalCapacityKey, .volumeAvailableCapacityForImportantUsageKey]) {
         s.total = Int64(v.volumeTotalCapacity ?? 0)
         s.available = v.volumeAvailableCapacityForImportantUsage ?? 0
     }
@@ -145,6 +149,8 @@ func scanDisk(largeMB: Double, runningIDs: Set<String>) -> DiskScan {
     s.downloads = children(downloadsDir).map {
         Item(url: $0, size: allocSize($0), date: (try? $0.resourceValues(forKeys: [.addedToDirectoryDateKey]))?.addedToDirectoryDate)
     }.sorted { $0.size > $1.size }
+
+    s.temp = tempDirs.flatMap(tempItems).sorted { $0.size > $1.size }
 
     // ~/.Trash needs Full Disk Access; without it we show "-" like the original.
     if (try? fm.contentsOfDirectory(atPath: trashDir.path)) != nil { s.trash = allocSize(trashDir) }
@@ -191,15 +197,63 @@ func scanDisk(largeMB: Double, runningIDs: Set<String>) -> DiskScan {
         let bundles = top + top.filter { $0.pathExtension != "app" }.flatMap(children)
         for u in bundles where u.pathExtension == "app" {
             guard let id = Bundle(url: u)?.bundleIdentifier, !id.hasPrefix("com.apple."), id != ownID else { continue }
-            let leftovers = leftoverPatterns.map { home.appending(path: "\($0.dir)/\(id)\($0.suffix)") }
-                .filter { fm.fileExists(atPath: $0.path) }.map { Item(url: $0, size: allocSize($0)) }
+            let leftovers = appLeftovers(u, id).map { Item(url: $0, size: allocSize($0)) }
             s.apps.append(AppEntry(url: u, name: u.deletingPathExtension().lastPathComponent, bundleID: id, size: allocSize(u), leftovers: leftovers))
         }
     }
-    // Two copies of one app share its support files: uninstalling one copy must not take the other copy's data.
-    let copies = Dictionary(grouping: s.apps, by: \.bundleID)
-    s.apps = s.apps.map { copies[$0.bundleID]!.count > 1 ? AppEntry(url: $0.url, name: $0.name, bundleID: $0.bundleID, size: $0.size, leftovers: []) : $0 }
+    // A folder claimed by two apps (two copies of one app, or two apps with one name) is shared:
+    // uninstalling one app must not take the other app's data.
+    let claims = Dictionary(grouping: s.apps.flatMap { $0.leftovers.map { $0.url.path.lowercased() } }, by: { $0 }).mapValues(\.count)
+    s.apps = s.apps.map { a in
+        AppEntry(url: a.url, name: a.name, bundleID: a.bundleID, size: a.size, leftovers: a.leftovers.filter { claims[$0.url.path.lowercased()] == 1 })
+    }
+    // An app's log folder counts once, under the app, not again under temporary files.
+    s.temp.removeAll { claims[$0.url.path.lowercased()] != nil }
     s.apps.sort { $0.total > $1.total }
     s.done = true
     return s
+}
+
+// Support folders: the exact bundle-ID names above, plus folders named exactly like the app
+// (Application Support/Claude, Application Support/Google/Chrome), same case. Never fuzzy matches, never the
+// vendor folder itself (Microsoft, Google), and never a name that one of the macOS apps uses.
+func appLeftovers(_ app: URL, _ id: String) -> [URL] {
+    var urls = leftoverPatterns.map { home.appending(path: "\($0.dir)/\(id)\($0.suffix)") }
+    let info = Bundle(url: app)?.infoDictionary ?? [:]
+    let names = Set([info["CFBundleName"] as? String, app.deletingPathExtension().lastPathComponent]
+        .compactMap { $0 }.filter { n in
+            n.count >= 3 && !n.contains("/") && !["", "Utilities/"].contains { fm.fileExists(atPath: "/System/Applications/\($0)\(n).app") }
+        })
+    let vendor = id.split(separator: ".").dropFirst().first?.lowercased()  // com.google.Chrome -> google
+    for dir in ["Library/Application Support", "Library/Caches", "Library/Logs"] {
+        let base = home.appending(path: dir), entries = children(base)
+        // Exact case: an app called "claude" never takes the "Claude" folder (the disk itself ignores case).
+        let vendorDir = entries.first { $0.lastPathComponent.lowercased() == vendor }  // real name, e.g. "Google"
+        let inVendor = vendorDir.map(children) ?? []
+        for n in names {
+            urls += entries.filter { $0.lastPathComponent == n } + inVendor.filter { $0.lastPathComponent == n }
+        }
+    }
+    var seen = Set<String>()
+    return urls.filter { fm.fileExists(atPath: $0.path) && seen.insert($0.path.lowercased()).inserted }
+}
+
+// Temp items: owned by you, untouched for a day, with no socket or pipe inside (those belong to
+// running programs, e.g. a database or tmux). Apple's own temp items never appear.
+private func tempItems(_ dir: URL) -> [Item] {
+    let dayAgo = Date().addingTimeInterval(-86_400)
+    let keys: Set<URLResourceKey> = [.contentModificationDateKey, .fileResourceTypeKey, .totalFileAllocatedSizeKey]
+    return children(dir).compactMap { u in
+        guard !u.lastPathComponent.hasPrefix("com.apple."),
+              (try? fm.attributesOfItem(atPath: u.path)[.ownerAccountID] as? Int) == Int(getuid()) else { return nil }
+        let inside = fm.enumerator(at: u, includingPropertiesForKeys: Array(keys), options: [], errorHandler: { _, _ in true })?.allObjects as? [URL]
+        var size: Int64 = 0, newest = Date.distantPast
+        for f in [u] + (inside ?? []) {
+            guard let v = try? f.resourceValues(forKeys: keys) else { return nil }  // unreadable: leave it alone
+            if v.fileResourceType == .socket || v.fileResourceType == .namedPipe { return nil }
+            size += Int64(v.totalFileAllocatedSize ?? 0)
+            newest = max(newest, v.contentModificationDate ?? .distantPast)
+        }
+        return newest < dayAgo && size > 0 ? Item(url: u, size: size, date: newest) : nil
+    }
 }

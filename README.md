@@ -27,9 +27,9 @@ All features are free. There is no Pro version, no trial, no license key, no acc
 ### Disk
 
 - Disk usage at a glance, with a bar split by category.
-- Junk files: app caches, the Downloads folder, and the Trash.
+- Junk files: app caches, temporary files, the Downloads folder, and the Trash. Temporary files are the same idea as the Temp folder on Windows: your temp folder, `/tmp` and app logs, but only items that haven't changed for a day.
 - Duplicate files. These are byte-for-byte matches found by size and SHA-256 hash, not by file name. The oldest copy is marked as the original.
-- Applications, with the size of each app and an uninstaller that also removes the app's support files (preferences, caches, containers, saved state). App data is counted separately from the apps themselves.
+- Applications, with the size of each app and its data, and an uninstaller that also removes the app's support files (preferences, caches, containers, saved state, and folders named exactly like the app, such as `Application Support/Claude`). Hover over the data size to see which folders it counts. Sizes are recalculated after every cleanup.
 - Large and old files: anything above a size you pick, plus files of 10 MB or more that you haven't opened in over a year.
 
 ### General
@@ -58,9 +58,11 @@ The memory icon appears in the menu bar. To start the app with your Mac, open Se
 The safety rules live in code (`Safety` in `Disk.swift`), so the UI can't skip them.
 
 - Everything goes to the Trash. The app never deletes a file outright, so you can put back anything you change your mind about. The only permanent action is Empty Trash, and it asks you first.
-- The app only works inside a fixed list of folders: your user folders (Desktop, Documents, Downloads, Movies, Music, Pictures), `~/Library/Caches`, `/Applications`, and the exact support folders of an app you uninstall. It checks each path again right before moving it, so a symlink can't redirect it somewhere else.
+- The app only works inside a fixed list of folders: your user folders (Desktop, Documents, Downloads, Movies, Music, Pictures), `~/Library/Caches`, `/Applications`, your temp folder, `/tmp`, `~/Library/Logs`, and the exact support folders of an app you uninstall. It checks each path again right before moving it, so a symlink can't redirect it somewhere else.
 - Apple apps and `com.apple.*` caches never appear in the lists.
 - Caches of apps that are running are left alone.
+- Temporary files are left alone if they changed in the last day, hold a socket or pipe that a running program uses (a database, tmux), belong to another user, or are Apple's own.
+- If two apps would claim the same support folder, neither uninstall removes it.
 - Git repositories, `node_modules` folders and Python virtualenvs are skipped completely.
 - iCloud files that aren't downloaded to your Mac are skipped, so a scan never starts downloading them.
 - Downloads, duplicates and large files are never cleaned in bulk. You tick each item yourself, and each row has a button that shows the file in Finder first.

@@ -220,6 +220,10 @@ struct JunkSection: View {
             Button(m.expanded.contains(.downloads) ? "Hide" : "Review") { m.toggle(.downloads) }.controlSize(.small)
         }
         if m.expanded.contains(.downloads) { ItemList(m: m, items: d.downloads, what: "downloads") }
+        Row("Temporary files", fmtDisk(d.tempSize)) {
+            Button("Clean") { m.trash(d.temp, what: "temporary items") }.controlSize(.small).disabled(d.temp.isEmpty)
+                .help("Temp folder, /tmp and app logs not changed for a day. Files of running programs are skipped.")
+        }
         Row("Uncleaned Trash", d.trash.map(fmtDisk) ?? "-") {
             if d.trash == nil {
                 // macOS hides ~/.Trash from apps without Full Disk Access
@@ -310,7 +314,7 @@ struct AppsSection: View {
     @ObservedObject var m: Model
     var body: some View {
         if m.disk.appDataSize > 0 {
-            Text("Plus \(fmtDisk(m.disk.appDataSize)) of app data, removed when you uninstall")
+            Text("Includes \(fmtDisk(m.disk.appDataSize)) of app data, removed when you uninstall")
                 .font(.caption).foregroundStyle(.secondary)
         }
         ForEach(m.disk.apps.prefix(60)) { a in AppRow(m: m, a: a) }
@@ -326,7 +330,10 @@ struct AppRow: View {
             Image(nsImage: icon(a.url)).resizable().frame(width: 20, height: 20)
             VStack(alignment: .leading, spacing: 0) {
                 Text(a.name).lineLimit(1)
-                if !a.leftovers.isEmpty { Text("+ \(a.leftovers.count) support files").font(.caption2).foregroundStyle(.secondary) }
+                if !a.leftovers.isEmpty {
+                    Text("App \(fmtDisk(a.size)) + data \(fmtDisk(a.total - a.size))").font(.caption2).foregroundStyle(.secondary)
+                        .help(a.leftovers.map { $0.url.path.replacingOccurrences(of: home.path, with: "~") }.joined(separator: "\n"))
+                }
             }
             Spacer()
             if hover { Button("Uninstall") { m.uninstall(a) }.controlSize(.small) }
