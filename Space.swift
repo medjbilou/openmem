@@ -20,6 +20,8 @@ final class Node: Identifiable {
     var modified: Date?, created: Date?
     var children: [Node] = []  // biggest first
     weak var parent: Node?
+    var fileID: UInt64 = 0  // checked before trashing, so an item replaced since the scan is never the one moved
+    var trashed = false
 
     init(_ name: String, isDir: Bool, kind: Kind, rest: Bool = false) { self.name = name; self.isDir = isDir; self.kind = kind; self.rest = rest }
     var url: URL { parent.map { $0.url.appending(path: name) } ?? URL(fileURLWithPath: name) }
@@ -30,14 +32,19 @@ final class Node: Identifiable {
 // millions of files; keep every file if a view ever needs to list them.
 private let minFileNode: Int64 = 1 << 20
 private let keys: [URLResourceKey] = [.isDirectoryKey, .isPackageKey, .isVolumeKey, .totalFileAllocatedSizeKey,
-                                      .contentModificationDateKey, .creationDateKey]
+                                      .contentModificationDateKey, .creationDateKey, .fileIdentifierKey]
+// Folders deeper than this are summed without a tree, so a pathological tree can't exhaust a worker thread's stack.
+private let maxDepth = 64
 private let devDirs: Set = ["node_modules", ".git", "DerivedData", ".gradle", ".npm", ".cargo", ".m2", ".pnpm-store",
                             ".venv", "venv", "Pods", ".build", ".next"]
 
+// Items listed so far, and a stop flag the walk checks at each folder.
 private final class Counter: @unchecked Sendable {
-    private let lock = NSLock(); private var n = 0
+    private let lock = NSLock(); private var n = 0, stop = false
     func add(_ k: Int) { lock.withLock { n += k } }
     var value: Int { lock.withLock { n } }
+    func cancel() { lock.withLock { stop = true } }
+    var cancelled: Bool { lock.withLock { stop } }
 }
 
 // Bytes per kind, and the kind of each file extension already seen (UTType lookups are slow).
@@ -68,9 +75,15 @@ private func folderKind(_ u: URL, _ v: URLResourceValues) -> Kind? {
 
 // Hidden files are included. Symlinks are not followed and other disks mounted inside are skipped.
 // The root's top folders are walked in parallel.
-private func walk(_ url: URL, _ name: String, _ ctx: Kind?, keep: Bool, parallel: Bool, _ t: inout Tally, _ c: Counter) -> Node {
+private func walk(_ url: URL, _ name: String, _ ctx: Kind?, keep: Bool, parallel: Bool, depth: Int = 0, _ t: inout Tally, _ c: Counter) -> Node {
     let node = Node(name, isDir: true, kind: ctx ?? .other)
-    var dirs: [(url: URL, pkg: Bool, modified: Date?, created: Date?, kind: Kind?)] = []
+    guard !c.cancelled else { return node }
+    if depth >= maxDepth {
+        node.size = allocSize(url)
+        t.kinds[node.kind.rawValue] += node.size
+        return node
+    }
+    var dirs: [(url: URL, pkg: Bool, modified: Date?, created: Date?, id: UInt64?, kind: Kind?)] = []
     let rest = Node("Small files", isDir: false, kind: .other, rest: true)
     // Background threads have no autorelease pool of their own: without this, every URL ever listed stays in memory.
     autoreleasepool {
@@ -79,7 +92,9 @@ private func walk(_ url: URL, _ name: String, _ ctx: Kind?, keep: Bool, parallel
         for u in items {
             guard let v = try? u.resourceValues(forKeys: Set(keys)) else { continue }
             if v.isDirectory == true {
-                if v.isVolume != true { dirs.append((u, v.isPackage == true, v.contentModificationDate, v.creationDate, ctx ?? folderKind(u, v))) }
+                if v.isVolume != true {
+                    dirs.append((u, v.isPackage == true, v.contentModificationDate, v.creationDate, v.fileIdentifier, ctx ?? folderKind(u, v)))
+                }
                 continue
             }
             let size = Int64(v.totalFileAllocatedSize ?? 0), k = ctx ?? t.kind(u.pathExtension)
@@ -88,7 +103,7 @@ private func walk(_ url: URL, _ name: String, _ ctx: Kind?, keep: Bool, parallel
             node.files += 1
             if keep && size >= minFileNode {
                 let f = Node(u.lastPathComponent, isDir: false, kind: k)
-                f.size = size; f.files = 1; f.modified = v.contentModificationDate; f.created = v.creationDate
+                f.size = size; f.files = 1; f.modified = v.contentModificationDate; f.created = v.creationDate; f.fileID = v.fileIdentifier ?? 0
                 node.children.append(f)
             } else { rest.size += size; rest.files += 1 }
         }
@@ -101,18 +116,21 @@ private func walk(_ url: URL, _ name: String, _ ctx: Kind?, keep: Bool, parallel
         DispatchQueue.concurrentPerform(iterations: dirs.count) { i in
             var sub = Tally()
             let d = list[i]
-            let n = walk(d.url, d.url.lastPathComponent, d.kind, keep: keep && !d.pkg, parallel: false, &sub, c)
+            let n = walk(d.url, d.url.lastPathComponent, d.kind, keep: keep && !d.pkg, parallel: false, depth: depth + 1, &sub, c)
             box.lock.withLock { box.nodes[i] = n; box.tallies.append(sub) }
         }
         subs = box.nodes
         for s in box.tallies { for i in t.kinds.indices { t.kinds[i] += s.kinds[i] } }
     } else {
-        for (i, d) in dirs.enumerated() { subs[i] = walk(d.url, d.url.lastPathComponent, d.kind, keep: keep && !d.pkg, parallel: false, &t, c) }
+        for (i, d) in dirs.enumerated() {
+            subs[i] = walk(d.url, d.url.lastPathComponent, d.kind, keep: keep && !d.pkg, parallel: false, depth: depth + 1, &t, c)
+        }
     }
     for (i, sub) in subs.enumerated() {
         guard let sub else { continue }
         sub.modified = dirs[i].modified
         sub.created = dirs[i].created
+        sub.fileID = dirs[i].id ?? 0
         node.size += sub.size; node.files += sub.files; node.folders += sub.folders + 1
         if keep { node.children.append(sub) }
     }
@@ -167,6 +185,7 @@ func squarify(_ sizes: [Double], in r: CGRect) -> [CGRect] {
     @Published var showHidden = false
     @Published var kindFilter: Kind?
     var folder = home
+    private var counter: Counter?
 
     var searching: Bool { !query.isEmpty || minSize > 0 || kindFilter != nil }
 
@@ -185,6 +204,7 @@ func squarify(_ sizes: [Double], in r: CGRect) -> [CGRect] {
         return Array(out.sorted { $0.size > $1.size }.prefix(300))
     }
     var onTrash: (() -> Void)?
+    var confirmTrash: (String, String) -> Bool = confirm  // tests answer No, so a missing check can't block on a dialog
 
     func scan(_ url: URL) {
         guard !scanning else { return }
@@ -193,6 +213,7 @@ func squarify(_ sizes: [Double], in r: CGRect) -> [CGRect] {
         scanned = 0
         status = ""
         let c = Counter()
+        counter = c
         let timer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: true) { [weak self] _ in Task { @MainActor in self?.scanned = c.value } }
         Task.detached(priority: .utility) {
             var t = Tally()
@@ -202,6 +223,8 @@ func squarify(_ sizes: [Double], in r: CGRect) -> [CGRect] {
             let kinds = t.kinds
             await MainActor.run {
                 timer.invalidate()
+                guard self.counter === c else { return }  // closed or replaced while walking
+                self.counter = nil
                 self.root = root
                 self.current = root
                 self.selected = nil
@@ -223,19 +246,37 @@ func squarify(_ sizes: [Double], in r: CGRect) -> [CGRect] {
         if p.runModal() == .OK, let u = p.url { scan(u) }
     }
 
+    // The window closed: stop a running walk and free the tree.
+    func close() {
+        counter?.cancel()
+        counter = nil
+        scanning = false
+        root = nil; current = nil; selected = nil
+    }
+
     func open(_ n: Node) {
         if n.isDir && !n.children.isEmpty { current = n; selected = nil } else { selected = n }
     }
 
     func up() { if let p = current?.parent { current = p; selected = nil } }
 
-    func canTrash(_ n: Node) -> Bool { !scanning && !n.rest && n.parent != nil && Safety.canTrash(n.url, picked: true) }
+    func canTrash(_ n: Node) -> Bool {
+        !scanning && !n.rest && n.parent != nil && !sequence(first: n, next: { $0.parent }).contains(where: \.trashed)
+            && Safety.canTrash(n.url, picked: true)
+    }
 
     func trash(_ n: Node) {
-        guard canTrash(n), let p = n.parent,
-              confirm("Move \(n.name) (\(fmtDisk(n.size))) to the Trash?", "You can restore it from the Trash until you empty it.") else { return }
+        guard canTrash(n), let p = n.parent else { return }
+        guard n.fileID != 0, (try? n.url.resourceValues(forKeys: [.fileIdentifierKey]))?.fileIdentifier == n.fileID else {
+            status = "\(n.name) changed since the scan. Rescan first."
+            return
+        }
+        guard confirmTrash("Move \(n.name) (\(fmtDisk(n.size))) to the Trash?", "You can restore it from the Trash until you empty it.") else { return }
         guard moveToTrash([Item(url: n.url, size: n.size)], picked: true).moved == 1 else { status = "Could not move \(n.name) to the Trash"; return }
+        n.trashed = true
         p.children.removeAll { $0 === n }
+        // Leave a folder that is now in the Trash.
+        if let cur = current, sequence(first: cur, next: { $0.parent }).contains(where: { $0 === n }) { current = p }
         // shortcut: kind totals are not split per folder, so they stay as scanned until the next scan.
         for a in sequence(first: p, next: { $0.parent }) {
             a.size -= n.size; a.files -= n.files; a.folders -= n.folders + (n.isDir ? 1 : 0)

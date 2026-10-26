@@ -47,9 +47,12 @@ let devCaches: [(path: String, label: String, each: Bool, app: String?)] = [
 // Dependency and build folders that tools recreate. Generic names (build, dist) count only beside a project file.
 private let devAnywhere: Set = ["node_modules", ".next", ".nuxt", ".turbo", ".parcel-cache", ".svelte-kit", ".angular",
                                 "__pycache__", ".pytest_cache", ".mypy_cache", "DerivedData"]
-private let devBuild: Set = ["target", "build", "dist", "out", ".build"]
-private let projectFiles = ["package.json", "Cargo.toml", "pom.xml", "build.gradle", "pyproject.toml", "Package.swift",
-                            "go.mod", "CMakeLists.txt", "Makefile"]
+// Each generic name counts only beside the project file of the tool that makes it: an `out` folder next to a
+// Makefile can be a LaTeX or data pipeline's real output.
+let devBuild: [String: [String]] = [
+    "target": ["Cargo.toml", "pom.xml"], "build": ["build.gradle", "build.gradle.kts", "CMakeLists.txt", "pyproject.toml", "package.json"],
+    "dist": ["package.json", "pyproject.toml"], "out": ["package.json"], ".build": ["Package.swift"],
+]
 private let installerTypes: Set = ["dmg", "iso", "pkg", "xip"]
 
 struct Item: Identifiable, Hashable {
@@ -112,17 +115,20 @@ enum Safety {
     // Whole folders that may go themselves, not only what is inside them.
     static let exact = Set(resolved(devCaches.filter { !$0.each }.map { home.appending(path: $0.path) }))
 
-    static func canTrash(_ url: URL, picked: Bool = false) -> Bool {
+    static func canTrash(_ url: URL, picked: Bool = false) -> Bool { checked(url, picked: picked) != nil }
+
+    // The path that passed the checks, so the caller moves exactly that path and not one a symlink swap points elsewhere.
+    static func checked(_ url: URL, picked: Bool = false) -> URL? {
         // Resolve the parent only, so a symlink item trashes the link, never its target.
         let p = url.deletingLastPathComponent().resolvingSymlinksInPath().appending(path: url.lastPathComponent).path
         let roots = picked ? pickRoots : listRoots
         guard url.lastPathComponent != "..", exact.contains(p) || roots.contains(where: { p.hasPrefix($0 + "/") }),
-              !p.split(separator: "/").contains(where: { $0.hasPrefix("com.apple.") }) else { return false }
+              !p.split(separator: "/").contains(where: { $0.hasPrefix("com.apple.") }) else { return nil }
         if appRoots.contains(where: { p.hasPrefix($0.path + "/") }) {
             guard url.pathExtension == "app", let id = Bundle(url: url)?.bundleIdentifier, !id.hasPrefix("com.apple."), id != ownID,
-                  !NSWorkspace.shared.runningApplications.contains(where: { $0.bundleIdentifier == id }) else { return false }
+                  !NSWorkspace.shared.runningApplications.contains(where: { $0.bundleIdentifier == id }) else { return nil }
         }
-        return true
+        return URL(fileURLWithPath: p)
     }
 }
 
@@ -131,8 +137,8 @@ struct TrashResult { var moved = 0; var bytes: Int64 = 0; var failed: [String] =
 func moveToTrash(_ items: [Item], picked: Bool = false) -> TrashResult {
     var r = TrashResult()
     for i in items {
-        guard Safety.canTrash(i.url, picked: picked) else { r.failed.append(i.name); continue }
-        let ok = i.url.pathExtension == "app" ? finderTrash(i.url) : (try? fm.trashItem(at: i.url, resultingItemURL: nil)) != nil
+        guard let u = Safety.checked(i.url, picked: picked) else { r.failed.append(i.name); continue }
+        let ok = u.pathExtension == "app" ? finderTrash(u) : (try? fm.trashItem(at: u, resultingItemURL: nil)) != nil
         if ok { r.moved += 1; r.bytes += i.size } else { r.failed.append(i.name) }
     }
     return r
@@ -178,9 +184,9 @@ private func isProtectedDir(_ u: URL) -> Bool {
     ["node_modules", ".venv", "venv", "Pods"].contains(u.lastPathComponent) || fm.fileExists(atPath: u.appending(path: ".git").path)
 }
 
-private func devItem(_ u: URL) -> Item? {
+func devItem(_ u: URL) -> Item? {
     let n = u.lastPathComponent, parent = u.deletingLastPathComponent()
-    guard devAnywhere.contains(n) || devBuild.contains(n) && projectFiles.contains(where: { fm.fileExists(atPath: parent.appending(path: $0).path) }),
+    guard devAnywhere.contains(n) || (devBuild[n] ?? []).contains(where: { fm.fileExists(atPath: parent.appending(path: $0).path) }),
           !fm.fileExists(atPath: u.appending(path: ".git").path) else { return nil }
     return Item(url: u, size: allocSize(u), note: "\(n == "node_modules" ? "Dependencies" : "Build output") · \(parent.lastPathComponent)")
 }
@@ -201,12 +207,12 @@ private func devItems(in dir: URL) -> [Item] {
 }
 
 // Launch agents and daemons that start with the Mac. Listed only: macOS manages them in Login Items settings.
-func startupItems() -> [StartupItem] {
-    let dirs = [(home.appending(path: "Library/LaunchAgents"), "You, at login"),
-                (URL(fileURLWithPath: "/Library/LaunchAgents"), "All users, at login"),
-                (URL(fileURLWithPath: "/Library/LaunchDaemons"), "System, at startup")]
-    return dirs.flatMap { dir, runs in
+func startupItems(_ dirs: [(URL, String)] = [(home.appending(path: "Library/LaunchAgents"), "You, at login"),
+                                              (URL(fileURLWithPath: "/Library/LaunchAgents"), "All users, at login"),
+                                              (URL(fileURLWithPath: "/Library/LaunchDaemons"), "System, at startup")]) -> [StartupItem] {
+    dirs.flatMap { dir, runs in
         children(dir).filter { $0.pathExtension == "plist" }.compactMap { u -> StartupItem? in
+            // NSDictionary returns nil at once for a pipe, /dev/zero or junk (checked in tests/main.swift).
             guard let p = NSDictionary(contentsOf: u) as? [String: Any] else { return nil }
             let label = p["Label"] as? String ?? u.deletingPathExtension().lastPathComponent
             guard !label.hasPrefix("com.apple.") else { return nil }

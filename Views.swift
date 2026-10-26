@@ -320,7 +320,11 @@ struct DevSection: View {
     var body: some View {
         Text("Dependencies, build output and tool caches. Tools rebuild them or download them again.")
             .font(.caption).foregroundStyle(.secondary)
-        if !m.disk.dev.isEmpty { Button("Select all") { m.selected.formUnion(m.disk.dev.map(\.url)) }.controlSize(.small) }
+        // Generic build folders (build, dist, out, target) can be committed or real output: ticked one by one only.
+        if !m.disk.dev.isEmpty {
+            Button("Select all") { m.selected.formUnion(m.disk.dev.filter { devBuild[$0.name] == nil }.map(\.url)) }.controlSize(.small)
+                .help("Ticks dependencies and caches. Build, dist, out and target folders you tick yourself.")
+        }
         ItemList(m: m, items: m.disk.dev, what: "developer files")
     }
 }

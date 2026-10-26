@@ -99,7 +99,7 @@ import UserNotifications
     }
 
     // A home folder's tree holds about 150 MB: a memory app frees it when the window closes.
-    func windowWillClose(_ n: Notification) { space.root = nil; space.current = nil; space.selected = nil }
+    func windowWillClose(_ n: Notification) { space.close() }
 
     // Accessory apps are always "foreground", so banners must be allowed explicitly.
     nonisolated func userNotificationCenter(_ c: UNUserNotificationCenter, willPresent n: UNNotification,

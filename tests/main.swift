@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Safety self-checks. Run with ./test.sh. Only a new temp folder is written to; nothing is moved to the Trash.
+// Safety and reliability self-checks. Run with ./test.sh. Writes only to a temp folder and one file in ~/Documents
+// that it deletes again; nothing is moved to the Trash.
 
 import Foundation
 
@@ -58,6 +59,72 @@ if let o = found.first {
     check(!orphanLeftovers(installed: [], running: [], claimed: [], startup: [agent]).contains { $0.url == o.url },
           "an ID used by a launch agent must not be listed")
 } else { print("skip: no leftovers on this Mac to check the launch agent rule") }
+
+// Moves use the exact path that was checked.
+check(Safety.checked(h("Documents/x"))?.path == h("Documents").resolvingSymlinksInPath().path + "/x", "checked must return the resolved path")
+
+// Generic build folders count only beside their own tool's project file.
+let proj = fm.temporaryDirectory.appending(path: "openmem-test-\(UUID().uuidString)")
+for d in ["make/out", "make/target", "web/dist", "web/out", "rust/target"] { try! fm.createDirectory(at: proj.appending(path: d), withIntermediateDirectories: true) }
+for f in ["make/Makefile", "web/package.json", "rust/Cargo.toml"] { fm.createFile(atPath: proj.appending(path: f).path, contents: Data("x".utf8)) }
+check(devItem(proj.appending(path: "make/out")) == nil && devItem(proj.appending(path: "make/target")) == nil, "out and target beside a Makefile are not build output")
+check(devItem(proj.appending(path: "web/dist")) != nil && devItem(proj.appending(path: "web/out")) != nil, "dist and out beside package.json are")
+check(devItem(proj.appending(path: "rust/target")) != nil, "target beside Cargo.toml is")
+
+// A pipe, /dev/zero or an oversized junk file named .plist is skipped without blocking or filling memory.
+let agents = proj.appending(path: "agents")
+try! fm.createDirectory(at: agents, withIntermediateDirectories: true)
+check(mkfifo(agents.appending(path: "pipe.plist").path, 0o600) == 0, "test setup: mkfifo")
+fm.createFile(atPath: agents.appending(path: "huge.plist").path, contents: Data(count: 2 << 20))
+try! fm.createSymbolicLink(atPath: agents.appending(path: "zero.plist").path, withDestinationPath: "/dev/zero")
+try! (["Label": "com.example.ok", "Program": "/bin/true"] as NSDictionary).write(to: agents.appending(path: "ok.plist"))
+let listed = startupItems([(agents, "test")])
+check(listed.map(\.label) == ["com.example.ok"], "only the regular plist is read, got \(listed.map(\.label))")
+
+MainActor.assumeIsolated {
+    // A folder in the Trash, and everything inside it, can't be trashed again from the map.
+    let root = Node(h("Documents").path, isDir: true, kind: .other)
+    let x = Node("openmem-x", isDir: true, kind: .other), y = Node("y", isDir: false, kind: .other)
+    root.children = [x]; x.parent = root; x.children = [y]; y.parent = x
+    let s = SpaceModel()
+    s.confirmTrash = { _, _ in false }
+    check(s.canTrash(y), "test setup: item is trashable")
+    x.trashed = true
+    check(!s.canTrash(x) && !s.canTrash(y), "a trashed folder and its contents are not trashable")
+
+    // An item replaced since the scan is refused before any dialog, and stays where it is.
+    let file = h("Documents/openmem-selftest-\(UUID().uuidString)")
+    fm.createFile(atPath: file.path, contents: Data("x".utf8))
+    let r = Node(h("Documents").path, isDir: true, kind: .other), f = Node(file.lastPathComponent, isDir: false, kind: .other)
+    r.children = [f]; f.parent = r
+    f.fileID = ((try? file.resourceValues(forKeys: [.fileIdentifierKey]))?.fileIdentifier ?? 0) &+ 1
+    s.trash(f)
+    check(fm.fileExists(atPath: file.path) && s.status.contains("changed since the scan"), "a replaced item must not be moved")
+    try? fm.removeItem(at: file)
+
+    // 480 levels, built with relative steps to stay under PATH_MAX: without the depth cap the walk overflows its
+    // thread's stack (SIGBUS). With it, the scan finishes and keeps the size of a file far below the cap.
+    let deep = proj.appending(path: "deep"), cwd = fm.currentDirectoryPath
+    try! fm.createDirectory(at: deep, withIntermediateDirectories: true)
+    fm.changeCurrentDirectoryPath(deep.path)
+    for level in 1...480 {
+        mkdir("d", 0o755); chdir("d")
+        if level == 300 { fm.createFile(atPath: "f", contents: Data(count: 1 << 20)) }  // deeper paths pass PATH_MAX
+    }
+    fm.changeCurrentDirectoryPath(cwd)
+    s.scan(deep)
+    while s.scanning { RunLoop.main.run(until: Date().addingTimeInterval(0.1)) }
+    check((s.root?.size ?? 0) >= 1 << 20, "a 480-level tree keeps the size of a file at level 300")
+
+    // Closing the window stops the walk: the tree never comes back after close.
+    s.scan(home)
+    RunLoop.main.run(until: Date().addingTimeInterval(0.5))
+    s.close()
+    RunLoop.main.run(until: Date().addingTimeInterval(3))
+    check(s.root == nil && !s.scanning, "a closed window must not reload its tree")
+}
+// rm, not removeItem: FileManager can't remove a tree deeper than PATH_MAX.
+let rm = Process(); rm.executableURL = URL(fileURLWithPath: "/bin/rm"); rm.arguments = ["-rf", proj.path]; try? rm.run(); rm.waitUntilExit()
 
 print(failures == 0 ? "all safety checks passed" : "\(failures) safety checks failed")
 exit(failures == 0 ? 0 : 1)
