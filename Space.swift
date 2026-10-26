@@ -159,15 +159,16 @@ func squarify(_ sizes: [Double], in r: CGRect) -> [CGRect] {
     @Published var kinds = [Int64](repeating: 0, count: Kind.allCases.count)
     @Published var scanning = false
     @Published var scanned = 0
-    @Published var showList = false
+    @Published var mode = SpaceMode.treemap
     @Published var fullAccess = true
     @Published var status = ""
     @Published var query = ""
     @Published var minSize: Int64 = 0
     @Published var showHidden = false
+    @Published var kindFilter: Kind?
     var folder = home
 
-    var searching: Bool { !query.isEmpty || minSize > 0 }
+    var searching: Bool { !query.isEmpty || minSize > 0 || kindFilter != nil }
 
     // Folders match by name only, so a size filter alone lists files. Searches the whole scan: folders and files of 1 MB or more.
     func results() -> [Node] {
@@ -176,7 +177,7 @@ func squarify(_ sizes: [Double], in r: CGRect) -> [CGRect] {
         func visit(_ n: Node) {
             for c in n.children where !c.rest && (showHidden || !c.name.hasPrefix(".")) {
                 let named = query.isEmpty || c.name.localizedCaseInsensitiveContains(query)
-                if named && c.size >= minSize && (!c.isDir || !query.isEmpty) { out.append(c) }
+                if named && c.size >= minSize && (!c.isDir || !query.isEmpty) && (kindFilter == nil || c.kind == kindFilter) { out.append(c) }
                 visit(c)
             }
         }
@@ -262,19 +263,37 @@ struct SpaceView: View {
                     Text("Any size").tag(Int64(0))
                     ForEach([Int64(100 << 20), 1 << 30, 10 << 30], id: \.self) { Text("≥ \(fmtDisk($0))").tag($0) }
                 }.labelsHidden().frame(width: 110)
+                Picker("Kind", selection: $s.kindFilter) {
+                    Text("Any kind").tag(Kind?.none)
+                    ForEach(Kind.allCases, id: \.self) { Text($0.name).tag(Kind?.some($0)) }
+                }.labelsHidden().frame(width: 120)
                 Toggle("Hidden", isOn: $s.showHidden).help("Include hidden files and folders, such as .git and .cache, in search")
-                Picker("View", selection: $s.showList) {
-                    Image(systemName: "square.grid.2x2").tag(false).help("Treemap")
-                    Image(systemName: "list.bullet").tag(true).help("Largest first")
-                }.pickerStyle(.segmented).labelsHidden().frame(width: 90)
-            }.padding(10)
+                Picker("View", selection: $s.mode) {
+                    ForEach(SpaceMode.allCases, id: \.self) { m in Image(systemName: m.icon).tag(m).help("\(m.name) (⌘\(m.rawValue + 1))") }
+                }.pickerStyle(.segmented).labelsHidden().frame(width: 160)
+            }
+            .padding(10)
+            // ⌘1–⌘5 switch views. Zero-size buttons, since SwiftUI ignores shortcuts of hidden ones.
+            .background {
+                ForEach(SpaceMode.allCases, id: \.self) { m in
+                    Button("") { s.mode = m }.keyboardShortcut(KeyEquivalent(Character("\(m.rawValue + 1)")), modifiers: .command).opacity(0).frame(width: 0, height: 0)
+                }
+            }
             if let cur = s.current {
                 KindBar(kinds: s.kinds).padding(.horizontal, 10)
                 Breadcrumbs(s: s, node: cur).padding(10)
                 HStack(alignment: .top, spacing: 10) {
                     Group {
                         if s.searching { SearchResults(s: s) }
-                        else if s.showList { LargestList(s: s, node: cur) } else { Treemap(s: s, node: cur) }
+                        else {
+                            switch s.mode {
+                            case .treemap: Treemap(s: s, node: cur)
+                            case .sunburst: Sunburst(s: s, node: cur)
+                            case .icicle: Icicle(s: s, node: cur)
+                            case .bubbles: Bubbles(s: s, node: cur)
+                            case .list: LargestList(s: s, node: cur)
+                            }
+                        }
                     }
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                     Inspector(s: s, n: s.selected ?? cur).frame(width: 250)
@@ -298,7 +317,7 @@ struct SpaceView: View {
                 }
             }.font(.caption).foregroundStyle(.secondary).padding(.horizontal, 10).padding(.vertical, 6)
         }
-        .frame(minWidth: 820, minHeight: 520)
+        .frame(minWidth: 980, minHeight: 520)
     }
 }
 
@@ -360,11 +379,15 @@ struct Treemap: View {
     }
 }
 
+// Folders in the accent colour unless their kind is known, files by kind, small files grey.
+func nodeColor(_ n: Node) -> Color {
+    (n.rest ? Color.gray : n.isDir && n.kind == .other ? Color.accentColor : n.kind.color).opacity(n.isDir ? 0.6 : 0.85)
+}
+
 struct Tile: View {
     let n: Node, selected: Bool
     var body: some View {
-        let c = n.rest ? Color.gray : n.isDir && n.kind == .other ? Color.accentColor : n.kind.color
-        RoundedRectangle(cornerRadius: 4).fill(c.opacity(n.isDir ? 0.6 : 0.85))
+        RoundedRectangle(cornerRadius: 4).fill(nodeColor(n))
             .overlay(RoundedRectangle(cornerRadius: 4).stroke(selected ? Color.primary : .clear, lineWidth: 2))
             .overlay(alignment: .topLeading) {
                 GeometryReader { g in
@@ -484,4 +507,149 @@ final class Preview: NSObject, QLPreviewPanelDataSource {
 
     func numberOfPreviewItems(in panel: QLPreviewPanel!) -> Int { url == nil ? 0 : 1 }
     func previewPanel(_ panel: QLPreviewPanel!, previewItemAt index: Int) -> QLPreviewItem! { url as NSURL? }
+}
+
+enum SpaceMode: Int, CaseIterable {
+    case treemap, sunburst, icicle, bubbles, list
+    var name: String { ["Treemap", "Sunburst", "Icicle", "Bubbles", "Largest first"][rawValue] }
+    var icon: String { ["square.grid.2x2", "circle.circle", "chart.bar.doc.horizontal", "circle.hexagongrid", "list.bullet"][rawValue] }
+}
+
+// One ring (sunburst) or row (icicle) per level below the current folder. Each item gets a share of its
+// parent's span in proportion to its size; items smaller than minSpan are left out.
+struct Segment: Identifiable {
+    let node: Node, depth: Int, start: Double, end: Double
+    var id: ObjectIdentifier { ObjectIdentifier(node) }
+}
+
+func segments(_ n: Node, from start: Double, to end: Double, depth: Int = 1, maxDepth: Int, minSpan: Double) -> [Segment] {
+    guard n.size > 0 else { return [] }
+    var out: [Segment] = [], a = start
+    for c in n.children where c.size > 0 {
+        let span = (end - start) * Double(c.size) / Double(n.size)
+        if span < minSpan { break }  // children are sorted biggest first
+        out.append(Segment(node: c, depth: depth, start: a, end: a + span))
+        if c.isDir && depth < maxDepth { out += segments(c, from: a, to: a + span, depth: depth + 1, maxDepth: maxDepth, minSpan: minSpan) }
+        a += span
+    }
+    return out
+}
+
+struct Sector: Shape {
+    let start: Double, end: Double, inner: Double, outer: Double
+    func path(in r: CGRect) -> Path {
+        let c = CGPoint(x: r.midX, y: r.midY)
+        var p = Path()
+        p.addArc(center: c, radius: outer, startAngle: .radians(start), endAngle: .radians(end), clockwise: false)
+        p.addArc(center: c, radius: inner, startAngle: .radians(end), endAngle: .radians(start), clockwise: true)
+        p.closeSubpath()
+        return p
+    }
+}
+
+struct Sunburst: View {
+    @ObservedObject var s: SpaceModel
+    let node: Node
+    var body: some View {
+        GeometryReader { g in
+            let levels = 4, hole = min(g.size.width, g.size.height) * 0.14
+            let ring = (min(g.size.width, g.size.height) / 2 - hole) / Double(levels)
+            ZStack {
+                ForEach(segments(node, from: -.pi / 2, to: 1.5 * .pi, maxDepth: levels, minSpan: 0.006)) { seg in
+                    let shape = Sector(start: seg.start, end: seg.end, inner: hole + ring * Double(seg.depth - 1) + 0.5, outer: hole + ring * Double(seg.depth) - 0.5)
+                    shape.fill(nodeColor(seg.node))
+                        .overlay(shape.stroke(s.selected === seg.node ? Color.primary : .clear, lineWidth: 2))
+                        .contentShape(shape)
+                        .onTapGesture { s.open(seg.node) }
+                        .help("\(seg.node.name): \(fmtDisk(seg.node.size))")
+                }
+                // The centre is the current folder: click it to go up.
+                VStack(spacing: 2) {
+                    Text(node.title).font(.caption.weight(.semibold)).lineLimit(1)
+                    Text(fmtDisk(node.size)).font(.caption2).foregroundStyle(.secondary)
+                }
+                .frame(width: hole * 1.6, height: hole * 1.6).background(Circle().fill(.background)).contentShape(Circle())
+                .onTapGesture { s.up() }.help("Enclosing folder")
+            }.frame(width: g.size.width, height: g.size.height)
+        }
+    }
+}
+
+struct Icicle: View {
+    @ObservedObject var s: SpaceModel
+    let node: Node
+    var body: some View {
+        GeometryReader { g in
+            let levels = 4, row = g.size.height / Double(levels)
+            ZStack(alignment: .topLeading) {
+                ForEach(segments(node, from: 0, to: g.size.width, maxDepth: levels, minSpan: 3)) { seg in
+                    let w = seg.end - seg.start
+                    Tile(n: seg.node, selected: s.selected === seg.node)
+                        .frame(width: max(0, w - 2), height: row - 2)
+                        .offset(x: seg.start + 1, y: row * Double(seg.depth - 1) + 1)
+                        .onTapGesture { s.open(seg.node) }
+                        .help("\(seg.node.name): \(fmtDisk(seg.node.size))")
+                }
+            }
+        }
+    }
+}
+
+// Circle packing, greedy: biggest first, each circle placed touching an earlier one, at the free spot
+// nearest the centre. Radii are in proportion to the square root of size, so area matches size.
+func packCircles(_ radii: [Double]) -> [CGPoint] {
+    var placed: [(p: CGPoint, r: Double)] = []
+    for r in radii {
+        var best = CGPoint.zero, bestD = Double.infinity
+        if !placed.isEmpty {
+            for q in placed {
+                for k in 0..<36 {
+                    let a = Double(k) * .pi / 18, d = q.r + r + 1
+                    let c = CGPoint(x: q.p.x + d * cos(a), y: q.p.y + d * sin(a))
+                    let dist = hypot(c.x, c.y)
+                    guard dist < bestD, !placed.contains(where: { hypot($0.p.x - c.x, $0.p.y - c.y) < $0.r + r + 0.5 }) else { continue }
+                    best = c; bestD = dist
+                }
+            }
+        }
+        placed.append((best, r))
+    }
+    return placed.map(\.p)
+}
+
+struct Bubbles: View {
+    @ObservedObject var s: SpaceModel
+    let node: Node
+    var body: some View {
+        GeometryReader { g in
+            let items = Array(node.children.filter { $0.size > 0 }.prefix(80))
+            let radii = items.map { sqrt(Double($0.size)) }
+            let centers = packCircles(radii)
+            // Fit the packed circles into the view.
+            let minX = zip(centers, radii).map { $0.x - $1 }.min() ?? 0, maxX = zip(centers, radii).map { $0.x + $1 }.max() ?? 1
+            let minY = zip(centers, radii).map { $0.y - $1 }.min() ?? 0, maxY = zip(centers, radii).map { $0.y + $1 }.max() ?? 1
+            let k = min(g.size.width / max(maxX - minX, 1), g.size.height / max(maxY - minY, 1))
+            let dx = (g.size.width - (maxX - minX) * k) / 2 - minX * k, dy = (g.size.height - (maxY - minY) * k) / 2 - minY * k
+            ZStack(alignment: .topLeading) {
+                ForEach(Array(items.enumerated()), id: \.element.id) { i, n in
+                    let r = radii[i] * k
+                    Circle().fill(nodeColor(n))
+                        .overlay(Circle().stroke(s.selected === n ? Color.primary : .clear, lineWidth: 2))
+                        .overlay {
+                            if r > 28 {
+                                VStack(spacing: 0) {
+                                    Text(n.name).font(.caption.weight(.medium)).lineLimit(1)
+                                    Text(fmtDisk(n.size)).font(.caption2).opacity(0.85)
+                                }.foregroundStyle(.white).frame(width: r * 1.6)
+                            }
+                        }
+                        .frame(width: r * 2, height: r * 2)
+                        .contentShape(Circle())
+                        .offset(x: centers[i].x * k + dx - r, y: centers[i].y * k + dy - r)
+                        .onTapGesture { s.open(n) }
+                        .help("\(n.name): \(fmtDisk(n.size))")
+                }
+            }
+        }
+    }
 }

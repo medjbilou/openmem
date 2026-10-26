@@ -35,7 +35,7 @@ All features are free. There is no Pro version, no trial, no license key, no acc
 - Start with your Mac: the launch agents and daemons that start at login or at boot, and who they run for. Items whose program no longer exists are marked, since an app you removed left them behind. A button opens Login Items settings to turn them off.
 - Installers: `.dmg`, `.iso`, `.pkg` and `.xip` files, which you usually no longer need after installing.
 - Large and old files: anything above a size you pick, plus files of 10 MB or more that you haven't opened in over a year.
-- Disk space map: click Explore to open a window that scans your home folder, including hidden files and `~/Library`, or any folder or external drive you choose. It shows a treemap you can click into, or a list sorted by size, with breadcrumbs to go back up (⌘↑ goes up one level). A bar splits the space by kind: apps, developer files, video, audio, images, archives and disk images, caches and logs, documents, and other. Select an item to see its size, how many files and folders it holds, its share of the folder, its dates, and the largest items inside. You can preview it with Quick Look (⌘Y), show it in Finder or move it to the Trash, but only inside the folders listed under [Your files stay safe](#your-files-stay-safe). Search the whole scan by name and by minimum size (100 MB, 1 GB or 10 GB). A size filter on its own lists files; hidden items such as `.git` appear only when you tick Hidden. Double-click a result to open its folder in the map. Files under 1 MB in a folder are shown as one block and don't appear in search. The window frees its memory when you close it.
+- Disk space map: click Explore to open a window that scans your home folder, including hidden files and `~/Library`, or any folder or external drive you choose. It shows the same scan five ways, switched with ⌘1 to ⌘5: a treemap, a sunburst (rings for four levels of folders; click the centre to go up), an icicle chart (the same four levels as rows), bubbles sized by space used, and a list sorted by size. Click a folder to go into it. Breadcrumbs take you back up, and ⌘↑ goes up one level. A bar splits the space by kind: apps, developer files, video, audio, images, archives and disk images, caches and logs, documents, and other. Select an item to see its size, how many files and folders it holds, its share of the folder, its dates, and the largest items inside. You can preview it with Quick Look (⌘Y), show it in Finder or move it to the Trash, but only inside the folders listed under [Your files stay safe](#your-files-stay-safe). Search the whole scan by name, by minimum size (100 MB, 1 GB or 10 GB) and by kind, for example videos over 100 MB. A size filter on its own lists files; hidden items such as `.git` appear only when you tick Hidden. Double-click a result to open its folder in the map. Files under 1 MB in a folder are shown as one block and don't appear in search. The window frees its memory when you close it.
 
 ### General
 
@@ -120,7 +120,7 @@ Measured on an Apple Silicon Mac running macOS 26, with the app idle in the menu
 | Helper apps or launch agents | 0 |
 | Network connections | 0. The app never connects to the internet. |
 
-The code is about 1,700 lines of Swift in six files:
+The code is about 1,900 lines of Swift in six files:
 
 ```
 main.swift     menu bar item and panel

@@ -86,7 +86,7 @@ import UserNotifications
         if spaceWindow == nil {
             let w = NSWindow(contentViewController: NSHostingController(rootView: SpaceView(s: space)))
             w.title = "Disk Space"
-            w.setContentSize(NSSize(width: 1000, height: 660))
+            w.setContentSize(NSSize(width: 1100, height: 680))
             w.isReleasedWhenClosed = false
             w.delegate = self
             w.center()
