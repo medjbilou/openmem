@@ -43,8 +43,8 @@ enum Cat: String { case junk, downloads, dev, dups, apps, installers, large }
 
     func start() {
         // Menu bar only needs one host_statistics call every 3 s; heavy apps only while the panel is open.
+        // No disk scan at launch: the menu bar shows memory only, so the scan waits for the panel (panelOpened).
         timer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in Task { @MainActor in self?.tick() } }
-        rescan()
     }
 
     func tick() {

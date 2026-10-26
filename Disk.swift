@@ -153,7 +153,8 @@ func allocSize(_ url: URL) -> Int64 {
     if v?.isRegularFile == true { return Int64(v?.totalFileAllocatedSize ?? 0) }
     guard let e = fm.enumerator(at: url, includingPropertiesForKeys: Array(sizeKeys), options: [], errorHandler: { _, _ in true }) else { return 0 }
     var t: Int64 = 0
-    for case let f as URL in e { t += Int64((try? f.resourceValues(forKeys: sizeKeys))?.totalFileAllocatedSize ?? 0) }
+    // A pool per file: background threads have none, and a node_modules folder lists tens of thousands of URLs.
+    for case let f as URL in e { autoreleasepool { t += Int64((try? f.resourceValues(forKeys: sizeKeys))?.totalFileAllocatedSize ?? 0) } }
     return t
 }
 
@@ -263,19 +264,19 @@ func scanDisk(largeMB: Double, runningIDs: Set<String>) -> DiskScan {
     for root in userRoots {
         guard let e = fm.enumerator(at: root, includingPropertiesForKeys: keys,
                                     options: [.skipsPackageDescendants], errorHandler: { _, _ in true }) else { continue }
-        for case let u as URL in e {
-            guard let v = try? u.resourceValues(forKeys: Set(keys)) else { continue }
+        for case let u as URL in e { autoreleasepool {
+            guard let v = try? u.resourceValues(forKeys: Set(keys)) else { return }
             // Hidden items are skipped, except build folders such as .next.
             let hidden = u.lastPathComponent.hasPrefix(".")
             if v.isDirectory == true {
                 if let d = devItem(u) { s.dev.append(d); e.skipDescendants() }
                 else if isClosedDir(u) { e.skipDescendants() }
                 else if isProtectedDir(u) { s.dev += devItems(in: u); e.skipDescendants() }
-                continue
+                return
             }
-            guard !hidden, v.isRegularFile == true, v.isSymbolicLink != true, let size = v.fileSize.map(Int64.init), size >= mb else { continue }
+            guard !hidden, v.isRegularFile == true, v.isSymbolicLink != true, let size = v.fileSize.map(Int64.init), size >= mb else { return }
             // Skip iCloud placeholders: reading them would trigger a download.
-            if v.isUbiquitousItem == true, v.ubiquitousItemDownloadingStatus != .current { continue }
+            if v.isUbiquitousItem == true, v.ubiquitousItemDownloadingStatus != .current { return }
             bySize[size, default: []].append(Item(url: u, size: size, date: v.creationDate))
             let last = max(v.contentAccessDate ?? .distantPast, v.contentModificationDate ?? .distantPast)
             let old = size >= 10 * mb && last < oneYearAgo
@@ -284,7 +285,7 @@ func scanDisk(largeMB: Double, runningIDs: Set<String>) -> DiskScan {
             } else if Double(size) >= largeMB * Double(mb) || old {
                 s.large.append(Item(url: u, size: size, date: last, note: old ? "Not opened for over a year" : ""))
             }
-        }
+        } }
     }
     s.large = Array(s.large.sorted { $0.size > $1.size }.prefix(200))
     s.installers.sort { $0.size > $1.size }

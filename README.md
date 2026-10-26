@@ -105,19 +105,20 @@ sudo rm /etc/sudoers.d/openmem
 | Memory % | `host_statistics64`, with the same formula as Activity Monitor's "Memory Used" (app memory + wired + compressed) |
 | Per-app memory | The `proc_pid_rusage` physical footprint of each process, added up under the app that owns it. The app never starts `ps` or `top`. |
 | Free up memory | Three steps. First `sync` writes changed file data to disk. Then `memory_pressure -S -l warn` tells every app that memory is low for one second, so apps release memory and macOS drops purgeable caches. Last, `/usr/sbin/purge` empties the disk cache. Automatic cleanup skips `purge`, because the Mac can stall while the cache fills again. |
-| Disk scan | Runs in the background at low priority. One walk of your folders finds duplicates, large files, installers and developer folders. Duplicates are compared by size, then by their first 64 KB, then by a full SHA-256. |
+| Disk scan | Starts the first time you open the panel, not at launch, and runs in the background at low priority. Each file is read in its own autorelease pool, so memory goes back down after the scan. One walk of your folders finds duplicates, large files, installers and developer folders. Duplicates are compared by size, then by their first 64 KB, then by a full SHA-256. |
 | Disk space map | Walks the folder with `contentsOfDirectory`, reading sizes and dates in bulk, with each top-level folder on its own thread. Symlinks aren't followed and other disks mounted inside are skipped. File kinds come from `UTType`. On a home folder with 2.2 million files the scan took 34 seconds and peaked at 195 MB. |
 | Cost | The menu bar makes one system call every 3 seconds. Per-app memory is only measured while the panel is open. |
 
 ### Measured footprint
 
-Measured on an Apple Silicon Mac running macOS 26, with the app idle in the menu bar and its panel closed, sampled every 2 seconds for 60 seconds:
+Measured on an Apple Silicon Mac running macOS 26, with the app idle in the menu bar and its panel closed, over 60 seconds:
 
 | Metric | OpenMem |
 | --- | --- |
-| App size | 1.2 MB |
-| Memory footprint | 40 MB |
-| Average CPU | 0.4% (peak 3.3%) |
+| App size | 1.6 MB |
+| Memory footprint | 15 MB before the first disk scan, 41 MB after it |
+| Average CPU | 0.1 to 0.3%, with 0 idle wakeups |
+| Launch | 0.13 s of CPU |
 | Bundled frameworks | 0 |
 | Helper apps or launch agents | 0 |
 | Network connections | 0. The app never connects to the internet. |
@@ -132,6 +133,8 @@ Model.swift    state, settings, cleanup actions
 Views.swift    SwiftUI interface
 Space.swift    disk space map: folder tree, treemap, inspector
 ```
+
+`./perf.sh` checks the idle budget (footprint up to 25 MB, CPU up to 1%) on the built app and fails if it goes over.
 
 ## Uninstall
 
