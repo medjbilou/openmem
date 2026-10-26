@@ -76,7 +76,7 @@ struct StartupItem: Identifiable {
 struct DiskScan {
     var total: Int64 = 0, available: Int64 = 0
     var caches: [Item] = [], downloads: [Item] = [], temp: [Item] = [], trash: Int64? = nil
-    var dev: [Item] = [], dups: [DupGroup] = [], apps: [AppEntry] = [], installers: [Item] = [], large: [Item] = []
+    var dev: [Item] = [], dups: [DupGroup] = [], apps: [AppEntry] = [], orphans: [Item] = [], installers: [Item] = [], large: [Item] = []
     var startup: [StartupItem] = []
     var done = false
 
@@ -88,7 +88,8 @@ struct DiskScan {
     var devSize: Int64 { dev.reduce(0) { $0 + $1.size } }
     var installersSize: Int64 { installers.reduce(0) { $0 + $1.size } }
     var dupSize: Int64 { dups.reduce(0) { $0 + $1.waste } }
-    var appsSize: Int64 { apps.reduce(0) { $0 + $1.total } }  // apps plus their data, same as each row
+    var orphansSize: Int64 { orphans.reduce(0) { $0 + $1.size } }
+    var appsSize: Int64 { apps.reduce(0) { $0 + $1.total } + orphansSize }  // apps plus their data, same as each row
     var appDataSize: Int64 { apps.reduce(0) { $0 + $1.total - $1.size } }
     var largeSize: Int64 { large.reduce(0) { $0 + $1.size } }
 }
@@ -303,6 +304,7 @@ func scanDisk(largeMB: Double, runningIDs: Set<String>) -> DiskScan {
     s.apps = s.apps.map { a in
         AppEntry(url: a.url, name: a.name, bundleID: a.bundleID, size: a.size, leftovers: a.leftovers.filter { claims[$0.url.path.lowercased()] == 1 })
     }
+    s.orphans = orphanLeftovers(installed: Set(s.apps.map(\.bundleID)), running: runningIDs, claimed: Set(claims.keys))
     // An app's log folder counts once, under the app, not again under temporary files.
     s.temp.removeAll { claims[$0.url.path.lowercased()] != nil }
     s.apps.sort { $0.total > $1.total }
@@ -332,6 +334,30 @@ func appLeftovers(_ app: URL, _ id: String) -> [URL] {
     }
     var seen = Set<String>()
     return urls.filter { fm.fileExists(atPath: $0.path) && seen.insert($0.path.lowercased()).inserted }
+}
+
+// Leftovers of removed apps: support folders named by a bundle ID that no installed app (or its extensions and
+// helpers, whose IDs start with the app's) has, and that nothing changed for 30 days. Caches and logs are not
+// included: Junk Files already lists them. Nor are preferences: command-line tools and system services write
+// them too, and each is a few KB.
+func orphanLeftovers(installed: Set<String>, running: Set<String>, claimed: Set<String>) -> [Item] {
+    let monthAgo = Date().addingTimeInterval(-30 * 86_400)
+    func lastChange(_ u: URL) -> Date {
+        ([u] + children(u)).compactMap { try? $0.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate }.max() ?? .distantFuture
+    }
+    return leftoverPatterns.filter { !["Library/Caches", "Library/Logs", "Library/Preferences"].contains($0.dir) }.flatMap { p in
+        children(home.appending(path: p.dir)).compactMap { u -> Item? in
+            let n = u.lastPathComponent
+            guard n.hasSuffix(p.suffix) else { return nil }
+            let id = String(n.dropLast(p.suffix.count)), parts = id.split(separator: ".", omittingEmptySubsequences: false)
+            guard parts.count >= 3, !parts.contains(where: \.isEmpty), !id.contains(" "), !id.contains("com.apple."), id != ownID,
+                  !running.contains(id), !claimed.contains(u.path.lowercased()),
+                  !installed.contains(where: { id == $0 || id.hasPrefix($0 + ".") }),
+                  NSWorkspace.shared.urlForApplication(withBundleIdentifier: id) == nil,
+                  lastChange(u) < monthAgo else { return nil }
+            return Item(url: u, size: allocSize(u), note: String(p.dir.dropFirst("Library/".count)))
+        }
+    }.filter { $0.size > 0 }.sorted { $0.size > $1.size }
 }
 
 // Temp items: owned by you, untouched for a day, with no socket or pipe inside (those belong to

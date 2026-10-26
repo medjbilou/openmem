@@ -128,7 +128,7 @@ enum Cat: String { case junk, downloads, dev, dups, apps, installers, large }
                 self.disk = s
                 self.scanning = false
                 if self.rescanAgain { self.rescanAgain = false; self.rescan() }
-                self.selected.formIntersection(Set(s.downloads.map(\.url) + s.dev.map(\.url) + s.installers.map(\.url)
+                self.selected.formIntersection(Set(s.downloads.map(\.url) + s.dev.map(\.url) + s.orphans.map(\.url) + s.installers.map(\.url)
                                                    + s.large.map(\.url) + s.dups.flatMap { $0.files.map(\.url) }))
             }
         }

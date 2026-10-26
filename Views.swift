@@ -333,6 +333,12 @@ struct AppsSection: View {
                 .font(.caption).foregroundStyle(.secondary)
         }
         ForEach(m.disk.apps.prefix(60)) { a in AppRow(m: m, a: a) }
+        if !m.disk.orphans.isEmpty {
+            Divider()
+            Text("Leftovers of removed apps").font(.headline)
+            Text("Data and settings of apps that are no longer installed, unchanged for 30 days.").font(.caption).foregroundStyle(.secondary)
+            ItemList(m: m, items: m.disk.orphans, what: "leftovers")
+        }
         if !m.disk.startup.isEmpty {
             Divider()
             HStack {

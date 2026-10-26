@@ -4,6 +4,7 @@
 import SwiftUI
 import AppKit
 import UniformTypeIdentifiers
+import Quartz
 
 enum Kind: Int, CaseIterable {
     case apps, developer, video, audio, image, archive, cache, documents, other
@@ -161,7 +162,27 @@ func squarify(_ sizes: [Double], in r: CGRect) -> [CGRect] {
     @Published var showList = false
     @Published var fullAccess = true
     @Published var status = ""
+    @Published var query = ""
+    @Published var minSize: Int64 = 0
+    @Published var showHidden = false
     var folder = home
+
+    var searching: Bool { !query.isEmpty || minSize > 0 }
+
+    // Folders match by name only, so a size filter alone lists files. Searches the whole scan: folders and files of 1 MB or more.
+    func results() -> [Node] {
+        guard let root, searching else { return [] }
+        var out: [Node] = []
+        func visit(_ n: Node) {
+            for c in n.children where !c.rest && (showHidden || !c.name.hasPrefix(".")) {
+                let named = query.isEmpty || c.name.localizedCaseInsensitiveContains(query)
+                if named && c.size >= minSize && (!c.isDir || !query.isEmpty) { out.append(c) }
+                visit(c)
+            }
+        }
+        visit(root)
+        return Array(out.sorted { $0.size > $1.size }.prefix(300))
+    }
     var onTrash: (() -> Void)?
 
     func scan(_ url: URL) {
@@ -236,6 +257,12 @@ struct SpaceView: View {
                 Button { s.choose() } label: { Label("Choose Folder…", systemImage: "folder") }.disabled(s.scanning)
                 Button { s.scan(s.folder) } label: { Label("Rescan", systemImage: "arrow.clockwise") }.disabled(s.scanning)
                 Spacer()
+                TextField("Search", text: $s.query).textFieldStyle(.roundedBorder).frame(width: 180)
+                Picker("Size", selection: $s.minSize) {
+                    Text("Any size").tag(Int64(0))
+                    ForEach([Int64(100 << 20), 1 << 30, 10 << 30], id: \.self) { Text("≥ \(fmtDisk($0))").tag($0) }
+                }.labelsHidden().frame(width: 110)
+                Toggle("Hidden", isOn: $s.showHidden).help("Include hidden files and folders, such as .git and .cache, in search")
                 Picker("View", selection: $s.showList) {
                     Image(systemName: "square.grid.2x2").tag(false).help("Treemap")
                     Image(systemName: "list.bullet").tag(true).help("Largest first")
@@ -245,7 +272,10 @@ struct SpaceView: View {
                 KindBar(kinds: s.kinds).padding(.horizontal, 10)
                 Breadcrumbs(s: s, node: cur).padding(10)
                 HStack(alignment: .top, spacing: 10) {
-                    Group { if s.showList { LargestList(s: s, node: cur) } else { Treemap(s: s, node: cur) } }
+                    Group {
+                        if s.searching { SearchResults(s: s) }
+                        else if s.showList { LargestList(s: s, node: cur) } else { Treemap(s: s, node: cur) }
+                    }
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                     Inspector(s: s, n: s.selected ?? cur).frame(width: 250)
                 }.padding([.horizontal, .bottom], 10)
@@ -402,6 +432,7 @@ struct Inspector: View {
                 }
                 if !n.rest {
                     Divider()
+                    Button("Quick Look") { Preview.show(n.url) }.keyboardShortcut("y", modifiers: .command).help("⌘Y")
                     Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([n.url]) }
                     Button("Move to Trash") { s.trash(n) }.disabled(!s.canTrash(n))
                         .help(s.canTrash(n) ? "" : "OpenMem only removes items inside your user folders, caches, temporary folders and apps")
@@ -409,4 +440,48 @@ struct Inspector: View {
             }.frame(maxWidth: .infinity, alignment: .leading)
         }
     }
+}
+
+struct SearchResults: View {
+    @ObservedObject var s: SpaceModel
+    var body: some View {
+        let found = s.results()
+        if found.isEmpty { Text("Nothing found").foregroundStyle(.secondary).frame(maxWidth: .infinity, maxHeight: .infinity) }
+        else {
+            // Click selects; double-click opens the item's folder in the map.
+            List(found) { n in
+                HStack {
+                    Image(nsImage: NSWorkspace.shared.icon(forFile: n.url.path)).resizable().frame(width: 18, height: 18)
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text(n.name).lineLimit(1).truncationMode(.middle)
+                        Text(n.url.deletingLastPathComponent().path.replacingOccurrences(of: home.path, with: "~"))
+                            .font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.head)
+                    }
+                    Spacer()
+                    Text(fmtDisk(n.size)).monospacedDigit()
+                }
+                .contentShape(Rectangle())
+                .onTapGesture(count: 2) { s.current = n.isDir && !n.children.isEmpty ? n : n.parent; s.selected = n; s.query = ""; s.minSize = 0 }
+                .onTapGesture { s.selected = n }
+                .listRowBackground(s.selected === n ? Color.accentColor.opacity(0.2) : nil)
+            }
+        }
+    }
+}
+
+// Quick Look panel for one file or folder.
+final class Preview: NSObject, QLPreviewPanelDataSource {
+    static let shared = Preview()
+    private var url: URL?
+
+    static func show(_ u: URL) {
+        guard let p = QLPreviewPanel.shared() else { return }
+        shared.url = u
+        p.dataSource = shared
+        p.reloadData()
+        p.makeKeyAndOrderFront(nil)
+    }
+
+    func numberOfPreviewItems(in panel: QLPreviewPanel!) -> Int { url == nil ? 0 : 1 }
+    func previewPanel(_ panel: QLPreviewPanel!, previewItemAt index: Int) -> QLPreviewItem! { url as NSURL? }
 }
