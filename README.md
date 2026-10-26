@@ -27,9 +27,12 @@ All features are free. There is no Pro version, no trial, no license key, no acc
 ### Disk
 
 - Disk usage at a glance, with a bar split by category.
-- Junk files: app caches, temporary files, the Downloads folder, and the Trash. Temporary files are the same idea as the Temp folder on Windows: your temp folder, `/tmp` and app logs, but only items that haven't changed for a day.
+- Junk files: app caches, temporary files, the Downloads folder, and the Trash. Downloads you haven't opened or changed for 90 days are marked. Temporary files are the same idea as the Temp folder on Windows: your temp folder, `/tmp` and app logs, but only items that haven't changed for a day.
+- Developer files: `node_modules`, build output (`.next`, `.nuxt`, `.turbo`, `.svelte-kit`, `.angular`, `.parcel-cache`, `__pycache__`, `.pytest_cache`, `.mypy_cache`, `DerivedData`), and `target`, `build`, `dist`, `out` or `.build` folders when a project file such as `package.json`, `Cargo.toml` or `Package.swift` sits beside them. Also Xcode DerivedData, device support and simulator caches, Android system images and cache, and the npm, pnpm, Yarn, Bun, Cargo, Maven, Gradle and pip caches. Tools rebuild or download all of these again. Xcode and Android items are hidden while those apps run.
 - Duplicate files. These are byte-for-byte matches found by size and SHA-256 hash, not by file name. The oldest copy is marked as the original.
 - Applications, with the size of each app and its data, and an uninstaller that also removes the app's support files (preferences, caches, containers, saved state, and folders named exactly like the app, such as `Application Support/Claude`). Hover over the data size to see which folders it counts. Sizes are recalculated after every cleanup.
+- Start with your Mac: the launch agents and daemons that start at login or at boot, and who they run for. Items whose program no longer exists are marked, since an app you removed left them behind. A button opens Login Items settings to turn them off.
+- Installers: `.dmg`, `.iso`, `.pkg` and `.xip` files, which you usually no longer need after installing.
 - Large and old files: anything above a size you pick, plus files of 10 MB or more that you haven't opened in over a year.
 
 ### General
@@ -58,14 +61,14 @@ The memory icon appears in the menu bar. To start the app with your Mac, open Se
 The safety rules live in code (`Safety` in `Disk.swift`), so the UI can't skip them.
 
 - Everything goes to the Trash. The app never deletes a file outright, so you can put back anything you change your mind about. The only permanent action is Empty Trash, and it asks you first.
-- The app only works inside a fixed list of folders: your user folders (Desktop, Documents, Downloads, Movies, Music, Pictures), `~/Library/Caches`, `/Applications`, your temp folder, `/tmp`, `~/Library/Logs`, and the exact support folders of an app you uninstall. It checks each path again right before moving it, so a symlink can't redirect it somewhere else.
+- The app only works inside a fixed list of folders: your user folders (Desktop, Documents, Downloads, Movies, Music, Pictures, and Developer, Projects and Code if you have them), the developer caches listed above, `~/Library/Caches`, `/Applications`, your temp folder, `/tmp`, `~/Library/Logs`, and the exact support folders of an app you uninstall. It checks each path again right before moving it, so a symlink can't redirect it somewhere else.
 - Apple apps and `com.apple.*` caches never appear in the lists.
 - Caches of apps that are running are left alone.
 - Temporary files are left alone if they changed in the last day, hold a socket or pipe that a running program uses (a database, tmux), belong to another user, or are Apple's own.
 - If two apps would claim the same support folder, neither uninstall removes it.
-- Git repositories, `node_modules` folders and Python virtualenvs are skipped completely.
+- Git repositories, `node_modules` folders and Python virtualenvs are never searched for duplicates or large files. Inside a project only dependency and build folders appear, under Developer files; source files and `.git` never do. Generic folder names such as `build` count only next to a project file.
 - iCloud files that aren't downloaded to your Mac are skipped, so a scan never starts downloading them.
-- Downloads, duplicates and large files are never cleaned in bulk. You tick each item yourself, and each row has a button that shows the file in Finder first.
+- Downloads, developer files, duplicates, installers and large files are never cleaned in bulk. You tick each item yourself, and each row has a button that shows the file in Finder first.
 
 ## Permissions
 
@@ -98,7 +101,7 @@ sudo rm /etc/sudoers.d/openmem
 | Memory % | `host_statistics64`, with the same formula as Activity Monitor's "Memory Used" (app memory + wired + compressed) |
 | Per-app memory | The `proc_pid_rusage` physical footprint of each process, added up under the app that owns it. The app never starts `ps` or `top`. |
 | Free up memory | Three steps. First `sync` writes changed file data to disk. Then `memory_pressure -S -l warn` tells every app that memory is low for one second, so apps release memory and macOS drops purgeable caches. Last, `/usr/sbin/purge` empties the disk cache. Automatic cleanup skips `purge`, because the Mac can stall while the cache fills again. |
-| Disk scan | Runs in the background at low priority. One walk of your folders finds both duplicates and large files. Duplicates are compared by size, then by their first 64 KB, then by a full SHA-256. |
+| Disk scan | Runs in the background at low priority. One walk of your folders finds duplicates, large files, installers and developer folders. Duplicates are compared by size, then by their first 64 KB, then by a full SHA-256. |
 | Cost | The menu bar makes one system call every 3 seconds. Per-app memory is only measured while the panel is open. |
 
 ### Measured footprint
@@ -114,7 +117,7 @@ Measured on an Apple Silicon Mac running macOS 26, with the app idle in the menu
 | Helper apps or launch agents | 0 |
 | Network connections | 0. The app never connects to the internet. |
 
-The code is about 900 lines of Swift in five files:
+The code is about 1,100 lines of Swift in five files:
 
 ```
 main.swift     menu bar item and panel

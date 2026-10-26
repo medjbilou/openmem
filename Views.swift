@@ -4,7 +4,7 @@
 import SwiftUI
 import AppKit
 
-private let catColors: [Cat: Color] = [.junk: .indigo, .dups: .purple, .apps: .orange, .large: .yellow]
+private let catColors: [Cat: Color] = [.junk: .indigo, .dev: .teal, .dups: .purple, .apps: .orange, .installers: .pink, .large: .yellow]
 
 private func pctColor(_ p: Int) -> Color { p < 60 ? .green : p < 85 ? .orange : .red }
 
@@ -148,15 +148,19 @@ struct DiskCard: View {
     var body: some View {
         Card {
             CardHeader(title: "Disk Usage", pct: d.pct, open: $m.diskOpen)
-            SegmentBar(parts: [(d.junkSize, catColors[.junk]!), (d.dupSize, catColors[.dups]!),
-                               (d.appsSize, catColors[.apps]!), (d.largeSize, catColors[.large]!)])
+            SegmentBar(parts: [(d.junkSize, catColors[.junk]!), (d.devSize, catColors[.dev]!), (d.dupSize, catColors[.dups]!),
+                               (d.appsSize, catColors[.apps]!), (d.installersSize, catColors[.installers]!), (d.largeSize, catColors[.large]!)])
             if m.diskOpen {
                 if !d.done {
                     HStack { ProgressView().controlSize(.small); Text("Scanning disk…").foregroundStyle(.secondary) }
                 } else {
                     CategoryBox(m: m, cat: .junk, title: "Junk Files", size: d.junkSize) { JunkSection(m: m) }
+                    CategoryBox(m: m, cat: .dev, title: "Developer Files", size: d.devSize) { DevSection(m: m) }
                     CategoryBox(m: m, cat: .dups, title: "Duplicate Files", size: d.dupSize) { DupSection(m: m) }
                     CategoryBox(m: m, cat: .apps, title: "Applications", size: d.appsSize) { AppsSection(m: m) }
+                    CategoryBox(m: m, cat: .installers, title: "Installers", size: d.installersSize) {
+                        ItemList(m: m, items: d.installers, what: "installers")
+                    }
                     CategoryBox(m: m, cat: .large, title: "Large & Old Files", size: d.largeSize) {
                         ItemList(m: m, items: d.large, what: "large & old files")
                     }
@@ -310,6 +314,16 @@ struct DupSection: View {
     }
 }
 
+struct DevSection: View {
+    @ObservedObject var m: Model
+    var body: some View {
+        Text("Dependencies, build output and tool caches. Tools rebuild them or download them again.")
+            .font(.caption).foregroundStyle(.secondary)
+        if !m.disk.dev.isEmpty { Button("Select all") { m.selected.formUnion(m.disk.dev.map(\.url)) }.controlSize(.small) }
+        ItemList(m: m, items: m.disk.dev, what: "developer files")
+    }
+}
+
 struct AppsSection: View {
     @ObservedObject var m: Model
     var body: some View {
@@ -318,6 +332,28 @@ struct AppsSection: View {
                 .font(.caption).foregroundStyle(.secondary)
         }
         ForEach(m.disk.apps.prefix(60)) { a in AppRow(m: m, a: a) }
+        if !m.disk.startup.isEmpty {
+            Divider()
+            HStack {
+                Text("Start with your Mac").font(.headline)
+                Spacer()
+                Button("Login Items") {
+                    NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.LoginItems-Settings.extension")!)
+                }.controlSize(.small).help("Turn these off in System Settings")
+            }
+            ForEach(m.disk.startup) { s in
+                HStack {
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text(s.label).lineLimit(1).truncationMode(.middle)
+                        Text(s.missing ? "\(s.runs) · its app was removed" : s.runs).font(.caption2)
+                            .foregroundStyle(s.missing ? AnyShapeStyle(.orange) : AnyShapeStyle(.secondary))
+                    }
+                    Spacer()
+                    Button { NSWorkspace.shared.activateFileViewerSelecting([s.url]) } label: { Image(systemName: "magnifyingglass") }
+                        .buttonStyle(.plain).help("Show in Finder")
+                }
+            }
+        }
     }
 }
 

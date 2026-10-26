@@ -9,7 +9,7 @@ let home = fm.homeDirectoryForCurrentUser
 let cachesDir = home.appending(path: "Library/Caches")
 let downloadsDir = home.appending(path: "Downloads")
 let trashDir = home.appending(path: ".Trash")
-let userRoots = ["Desktop", "Documents", "Downloads", "Movies", "Music", "Pictures"].map { home.appending(path: $0) }
+let userRoots = ["Desktop", "Documents", "Downloads", "Movies", "Music", "Pictures", "Developer", "Projects", "Code"].map { home.appending(path: $0) }
 let appRoots = [URL(fileURLWithPath: "/Applications"), home.appending(path: "Applications")]
 let ownID = Bundle.main.bundleIdentifier ?? "io.github.medjbilou.openmem"
 // Like Windows %TEMP%: the per-user temp folder, /tmp, and app logs. Not caches.
@@ -21,6 +21,31 @@ let leftoverPatterns: [(dir: String, suffix: String)] = [
     ("Library/HTTPStorages", ""), ("Library/WebKit", ""), ("Library/Logs", ""),
     ("Library/Saved Application State", ".savedState"), ("Library/Preferences", ".plist"),
 ]
+
+// Caches that developer tools rebuild or download again. `each`: the folder stays and each item inside is
+// offered (one per project or OS version); otherwise the whole folder is one item and the tool recreates it.
+// `app`: skipped while that app runs, so a build in progress keeps its files.
+let devCaches: [(path: String, label: String, each: Bool, app: String?)] = [
+    ("Library/Developer/Xcode/DerivedData", "Xcode build data", true, "com.apple.dt.Xcode"),
+    ("Library/Developer/Xcode/iOS DeviceSupport", "Xcode device support", true, "com.apple.dt.Xcode"),
+    ("Library/Developer/Xcode/watchOS DeviceSupport", "Xcode device support", true, "com.apple.dt.Xcode"),
+    ("Library/Developer/Xcode/macOS DeviceSupport", "Xcode device support", true, "com.apple.dt.Xcode"),
+    ("Library/Developer/CoreSimulator/Caches", "Simulator caches", true, "com.apple.dt.Xcode"),
+    ("Library/Android/sdk/system-images", "Android system image", true, "com.google.android.studio"),
+    (".android/cache", "Android cache", false, "com.google.android.studio"),
+    (".npm/_cacache", "npm cache", false, nil), (".pnpm-store", "pnpm store", false, nil),
+    (".yarn/berry/cache", "Yarn cache", false, nil), (".bun/install/cache", "Bun cache", false, nil),
+    (".cargo/registry", "Cargo registry", false, nil), (".m2/repository", "Maven repository", false, nil),
+    (".gradle/caches", "Gradle cache", false, nil), (".cache/pip", "pip cache", false, nil),
+]
+
+// Dependency and build folders that tools recreate. Generic names (build, dist) count only beside a project file.
+private let devAnywhere: Set = ["node_modules", ".next", ".nuxt", ".turbo", ".parcel-cache", ".svelte-kit", ".angular",
+                                "__pycache__", ".pytest_cache", ".mypy_cache", "DerivedData"]
+private let devBuild: Set = ["target", "build", "dist", "out", ".build"]
+private let projectFiles = ["package.json", "Cargo.toml", "pom.xml", "build.gradle", "pyproject.toml", "Package.swift",
+                            "go.mod", "CMakeLists.txt", "Makefile"]
+private let installerTypes: Set = ["dmg", "iso", "pkg", "xip"]
 
 struct Item: Identifiable, Hashable {
     let url: URL
@@ -43,10 +68,16 @@ struct AppEntry: Identifiable {
     var total: Int64 { size + leftovers.reduce(0) { $0 + $1.size } }
 }
 
+struct StartupItem: Identifiable {
+    let url: URL, label: String, runs: String, missing: Bool
+    var id: URL { url }
+}
+
 struct DiskScan {
     var total: Int64 = 0, available: Int64 = 0
     var caches: [Item] = [], downloads: [Item] = [], temp: [Item] = [], trash: Int64? = nil
-    var dups: [DupGroup] = [], apps: [AppEntry] = [], large: [Item] = []
+    var dev: [Item] = [], dups: [DupGroup] = [], apps: [AppEntry] = [], installers: [Item] = [], large: [Item] = []
+    var startup: [StartupItem] = []
     var done = false
 
     var pct: Int { total > 0 ? Int(Double(total - available) / Double(total) * 100) : 0 }
@@ -54,6 +85,8 @@ struct DiskScan {
     var downloadsSize: Int64 { downloads.reduce(0) { $0 + $1.size } }
     var tempSize: Int64 { temp.reduce(0) { $0 + $1.size } }
     var junkSize: Int64 { cachesSize + downloadsSize + tempSize + (trash ?? 0) }
+    var devSize: Int64 { dev.reduce(0) { $0 + $1.size } }
+    var installersSize: Int64 { installers.reduce(0) { $0 + $1.size } }
     var dupSize: Int64 { dups.reduce(0) { $0 + $1.waste } }
     var appsSize: Int64 { apps.reduce(0) { $0 + $1.total } }  // apps plus their data, same as each row
     var appDataSize: Int64 { apps.reduce(0) { $0 + $1.total - $1.size } }
@@ -63,13 +96,16 @@ struct DiskScan {
 // Trust boundary: nothing leaves these folders, roots themselves are never touched,
 // and everything goes to the Trash (recoverable). Only "Empty Trash" is permanent.
 enum Safety {
-    static let roots = ([cachesDir] + userRoots + appRoots + tempDirs + leftoverPatterns.map { home.appending(path: $0.dir) })
+    static let roots = ([cachesDir] + userRoots + appRoots + tempDirs + leftoverPatterns.map { home.appending(path: $0.dir) }
+                        + devCaches.filter(\.each).map { home.appending(path: $0.path) })
         .map { $0.resolvingSymlinksInPath().path }
+    // Whole folders that may go themselves, not only what is inside them.
+    static let exact = Set(devCaches.filter { !$0.each }.map { home.appending(path: $0.path).resolvingSymlinksInPath().path })
 
     static func canTrash(_ url: URL) -> Bool {
         // Resolve the parent only, so a symlink item trashes the link, never its target.
         let p = url.deletingLastPathComponent().resolvingSymlinksInPath().appending(path: url.lastPathComponent).path
-        guard url.lastPathComponent != "..", roots.contains(where: { p.hasPrefix($0 + "/") }) else { return false }
+        guard url.lastPathComponent != "..", exact.contains(p) || roots.contains(where: { p.hasPrefix($0 + "/") }) else { return false }
         if appRoots.contains(where: { p.hasPrefix($0.path + "/") }) {
             guard url.pathExtension == "app", let id = Bundle(url: url)?.bundleIdentifier, !id.hasPrefix("com.apple."), id != ownID else { return false }
         }
@@ -123,9 +159,49 @@ private func digest(_ url: URL, limit: Int? = nil) -> String? {
     return hasher.finalize().map { String(format: "%02x", $0) }.joined()
 }
 
-// Git repos and dependency folders hold project files: never offered for cleanup.
+// Git repos and dependency folders hold project files: never searched for duplicates or large files.
 private func isProtectedDir(_ u: URL) -> Bool {
     ["node_modules", ".venv", "venv", "Pods"].contains(u.lastPathComponent) || fm.fileExists(atPath: u.appending(path: ".git").path)
+}
+
+private func devItem(_ u: URL) -> Item? {
+    let n = u.lastPathComponent, parent = u.deletingLastPathComponent()
+    guard devAnywhere.contains(n) || devBuild.contains(n) && projectFiles.contains(where: { fm.fileExists(atPath: parent.appending(path: $0).path) }),
+          !fm.fileExists(atPath: u.appending(path: ".git").path) else { return nil }
+    return Item(url: u, size: allocSize(u), note: "\(n == "node_modules" ? "Dependencies" : "Build output") · \(parent.lastPathComponent)")
+}
+
+// Hidden folders (.git, .venv) and environments are never entered: their build-looking folders are not build output.
+private func isClosedDir(_ u: URL) -> Bool { u.lastPathComponent.hasPrefix(".") || ["venv", "Pods"].contains(u.lastPathComponent) }
+
+// Inside a project only the folders above are offered, never source files or .git.
+private func devItems(in dir: URL) -> [Item] {
+    guard let e = fm.enumerator(at: dir, includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsPackageDescendants],
+                                errorHandler: { _, _ in true }) else { return [] }
+    var r: [Item] = []
+    for case let u as URL in e where (try? u.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true {
+        if let i = devItem(u) { r.append(i); e.skipDescendants() }
+        else if isClosedDir(u) { e.skipDescendants() }
+    }
+    return r
+}
+
+// Launch agents and daemons that start with the Mac. Listed only: macOS manages them in Login Items settings.
+func startupItems() -> [StartupItem] {
+    let dirs = [(home.appending(path: "Library/LaunchAgents"), "You, at login"),
+                (URL(fileURLWithPath: "/Library/LaunchAgents"), "All users, at login"),
+                (URL(fileURLWithPath: "/Library/LaunchDaemons"), "System, at startup")]
+    return dirs.flatMap { dir, runs in
+        children(dir).filter { $0.pathExtension == "plist" }.compactMap { u -> StartupItem? in
+            guard let p = NSDictionary(contentsOf: u) as? [String: Any] else { return nil }
+            let label = p["Label"] as? String ?? u.deletingPathExtension().lastPathComponent
+            guard !label.hasPrefix("com.apple.") else { return nil }
+            let program = p["Program"] as? String ?? (p["ProgramArguments"] as? [String])?.first
+            // A program that no longer exists was left behind by an app you removed.
+            let missing = program.map { $0.hasPrefix("/") && !fm.fileExists(atPath: $0) } ?? false
+            return StartupItem(url: u, label: label, runs: runs, missing: missing)
+        }
+    }
 }
 
 func volumeStats() -> DiskScan {
@@ -146,9 +222,18 @@ func scanDisk(largeMB: Double, runningIDs: Set<String>) -> DiskScan {
         .filter { n in let id = n.lastPathComponent; return !id.hasPrefix("com.apple.") && id != ownID && !runningIDs.contains(id) }
         .map { Item(url: $0, size: allocSize($0)) }.filter { $0.size > 0 }.sorted { $0.size > $1.size }
 
-    s.downloads = children(downloadsDir).map {
-        Item(url: $0, size: allocSize($0), date: (try? $0.resourceValues(forKeys: [.addedToDirectoryDateKey]))?.addedToDirectoryDate)
+    let ninetyDaysAgo = Date().addingTimeInterval(-90 * 86_400)
+    s.downloads = children(downloadsDir).map { u in
+        let v = try? u.resourceValues(forKeys: [.addedToDirectoryDateKey, .contentAccessDateKey, .contentModificationDateKey])
+        let last = max(v?.contentAccessDate ?? .distantPast, v?.contentModificationDate ?? .distantPast)
+        return Item(url: u, size: allocSize(u), date: v?.addedToDirectoryDate, note: last < ninetyDaysAgo ? "Not opened for 90 days" : "")
     }.sorted { $0.size > $1.size }
+
+    s.dev = devCaches.filter { $0.app.map { !runningIDs.contains($0) } ?? true }.flatMap { c in
+        let dir = home.appending(path: c.path)
+        return (c.each ? children(dir) : [dir]).map { Item(url: $0, size: allocSize($0), note: c.label) }
+    }
+    s.startup = startupItems()
 
     s.temp = tempDirs.flatMap(tempItems).sorted { $0.size > $1.size }
 
@@ -164,22 +249,33 @@ func scanDisk(largeMB: Double, runningIDs: Set<String>) -> DiskScan {
     var bySize: [Int64: [Item]] = [:]
     for root in userRoots {
         guard let e = fm.enumerator(at: root, includingPropertiesForKeys: keys,
-                                    options: [.skipsHiddenFiles, .skipsPackageDescendants], errorHandler: { _, _ in true }) else { continue }
+                                    options: [.skipsPackageDescendants], errorHandler: { _, _ in true }) else { continue }
         for case let u as URL in e {
             guard let v = try? u.resourceValues(forKeys: Set(keys)) else { continue }
-            if v.isDirectory == true { if isProtectedDir(u) { e.skipDescendants() }; continue }
-            guard v.isRegularFile == true, v.isSymbolicLink != true, let size = v.fileSize.map(Int64.init), size >= mb else { continue }
+            // Hidden items are skipped, except build folders such as .next.
+            let hidden = u.lastPathComponent.hasPrefix(".")
+            if v.isDirectory == true {
+                if let d = devItem(u) { s.dev.append(d); e.skipDescendants() }
+                else if isClosedDir(u) { e.skipDescendants() }
+                else if isProtectedDir(u) { s.dev += devItems(in: u); e.skipDescendants() }
+                continue
+            }
+            guard !hidden, v.isRegularFile == true, v.isSymbolicLink != true, let size = v.fileSize.map(Int64.init), size >= mb else { continue }
             // Skip iCloud placeholders: reading them would trigger a download.
             if v.isUbiquitousItem == true, v.ubiquitousItemDownloadingStatus != .current { continue }
             bySize[size, default: []].append(Item(url: u, size: size, date: v.creationDate))
             let last = max(v.contentAccessDate ?? .distantPast, v.contentModificationDate ?? .distantPast)
             let old = size >= 10 * mb && last < oneYearAgo
-            if Double(size) >= largeMB * Double(mb) || old {
+            if installerTypes.contains(u.pathExtension.lowercased()) {
+                s.installers.append(Item(url: u, size: size, date: last, note: "In \(u.deletingLastPathComponent().lastPathComponent)"))
+            } else if Double(size) >= largeMB * Double(mb) || old {
                 s.large.append(Item(url: u, size: size, date: last, note: old ? "Not opened for over a year" : ""))
             }
         }
     }
     s.large = Array(s.large.sorted { $0.size > $1.size }.prefix(200))
+    s.installers.sort { $0.size > $1.size }
+    s.dev = s.dev.filter { $0.size > 0 }.sorted { $0.size > $1.size }
 
     // Duplicates: same size, then same first 64 KB, then same full SHA-256.
     for group in bySize.values where group.count > 1 {

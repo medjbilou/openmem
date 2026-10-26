@@ -7,7 +7,7 @@ import UserNotifications
 
 private let ud = UserDefaults.standard
 
-enum Cat: String { case junk, downloads, dups, apps, large }
+enum Cat: String { case junk, downloads, dev, dups, apps, installers, large }
 
 @MainActor final class Model: ObservableObject {
     @Published var mem = readMem()
@@ -127,7 +127,8 @@ enum Cat: String { case junk, downloads, dups, apps, large }
                 self.disk = s
                 self.scanning = false
                 if self.rescanAgain { self.rescanAgain = false; self.rescan() }
-                self.selected.formIntersection(Set(s.downloads.map(\.url) + s.large.map(\.url) + s.dups.flatMap { $0.files.map(\.url) }))
+                self.selected.formIntersection(Set(s.downloads.map(\.url) + s.dev.map(\.url) + s.installers.map(\.url)
+                                                   + s.large.map(\.url) + s.dups.flatMap { $0.files.map(\.url) }))
             }
         }
     }
