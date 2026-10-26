@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="500" viewBox="0 0 1200 500" role="img" aria-labelledby="title desc">
-  <title id="title">OpenMem: the open memory cleaner for Mac</title>
-  <desc id="desc">The OpenMem app icon and name next to an illustration of its menu bar panel: memory usage at 73 percent, the heaviest apps, a Free up memory button, and disk usage.</desc>
+  <title id="title">OpenMem: the open memory and disk cleaner for Mac</title>
+  <desc id="desc">The OpenMem app icon and name next to an illustration of its menu bar panel, with memory usage at 73 percent, a Free up memory button, disk usage split into developer files, junk files and installers, and an Explore button, next to the Disk Space window showing a treemap of folders.</desc>
 
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
@@ -71,31 +71,37 @@
     <text x="196" y="100" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="19" fill="#4F46E5" letter-spacing="2">FREE · OPEN SOURCE · macOS</text>
     <text x="194" y="152" font-size="64" font-weight="800" fill="#0F172A" letter-spacing="-1">OpenMem</text>
 
-    <text x="60" y="244" font-size="34" font-weight="700" fill="#0F172A">The open memory cleaner</text>
-    <text x="60" y="286" font-size="34" font-weight="700" fill="#4F46E5">for your Mac's menu bar.</text>
-    <text x="60" y="332" font-size="22" fill="#475569">Every feature free. No Pro tier, no account, no tracking.</text>
+    <text x="60" y="232" font-size="34" font-weight="700" fill="#0F172A">The open memory and disk</text>
+    <text x="60" y="274" font-size="34" font-weight="700" fill="#4F46E5">cleaner for your menu bar.</text>
+    <text x="60" y="316" font-size="22" fill="#475569">Every feature free. No Pro tier, no account, no tracking.</text>
 
     <g id="pills" font-size="19" font-weight="600" fill="#3730A3">
-      <rect x="60" y="362" width="146" height="40" rx="20" fill="#FFFFFF" stroke="#C7CCFA" stroke-width="1.5"/>
-      <text x="133" y="388" text-anchor="middle">Auto free up</text>
-      <rect x="218" y="362" width="128" height="40" rx="20" fill="#FFFFFF" stroke="#C7CCFA" stroke-width="1.5"/>
-      <text x="282" y="388" text-anchor="middle">Duplicates</text>
-      <rect x="358" y="362" width="132" height="40" rx="20" fill="#FFFFFF" stroke="#C7CCFA" stroke-width="1.5"/>
-      <text x="424" y="388" text-anchor="middle">Uninstaller</text>
-      <rect x="502" y="362" width="128" height="40" rx="20" fill="#FFFFFF" stroke="#C7CCFA" stroke-width="1.5"/>
-      <text x="566" y="388" text-anchor="middle">Large files</text>
+      <rect x="60" y="342" width="146" height="40" rx="20" fill="#FFFFFF" stroke="#C7CCFA" stroke-width="1.5"/>
+      <text x="133" y="368" text-anchor="middle">Auto free up</text>
+      <rect x="218" y="342" width="168" height="40" rx="20" fill="#FFFFFF" stroke="#C7CCFA" stroke-width="1.5"/>
+      <text x="302" y="368" text-anchor="middle">Disk space map</text>
+      <rect x="398" y="342" width="164" height="40" rx="20" fill="#FFFFFF" stroke="#C7CCFA" stroke-width="1.5"/>
+      <text x="480" y="368" text-anchor="middle">Developer files</text>
+      <rect x="60" y="392" width="128" height="40" rx="20" fill="#FFFFFF" stroke="#C7CCFA" stroke-width="1.5"/>
+      <text x="124" y="418" text-anchor="middle">Duplicates</text>
+      <rect x="200" y="392" width="132" height="40" rx="20" fill="#FFFFFF" stroke="#C7CCFA" stroke-width="1.5"/>
+      <text x="266" y="418" text-anchor="middle">Uninstaller</text>
+      <rect x="344" y="392" width="150" height="40" rx="20" fill="#FFFFFF" stroke="#C7CCFA" stroke-width="1.5"/>
+      <text x="419" y="418" text-anchor="middle">App leftovers</text>
+      <rect x="506" y="392" width="120" height="40" rx="20" fill="#FFFFFF" stroke="#C7CCFA" stroke-width="1.5"/>
+      <text x="566" y="418" text-anchor="middle">Installers</text>
     </g>
-    <text x="60" y="452" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="18" fill="#64748B">GPL-3.0 · Swift · macOS 14+</text>
+    <text x="60" y="462" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="18" fill="#64748B">GPL-3.0 · Swift · macOS 14+</text>
   </g>
 
-  <!-- right: menu bar, panel and notification (illustration) -->
+  <!-- right: menu bar, Disk Space window and panel (illustration) -->
   <g id="project-proof" font-family="-apple-system, BlinkMacSystemFont, sans-serif">
     <rect x="690" y="30" width="470" height="40" rx="10" fill="#FFFFFF" fill-opacity="0.75" stroke="#E1E5F5"/>
     <g stroke="#475569" stroke-width="2.5" fill="none">
-      <circle cx="1018" cy="50" r="7"/>
-      <rect x="1040" y="43" width="22" height="14" rx="3"/>
+      <circle cx="1030" cy="50" r="7"/>
+      <rect x="1050" y="43" width="22" height="14" rx="3"/>
     </g>
-    <text x="1146" y="57" text-anchor="end" font-size="18" fill="#334155">12:06</text>
+    <text x="1150" y="57" text-anchor="end" font-size="18" fill="#334155">12:06</text>
     <rect x="890" y="35" width="108" height="30" rx="7" fill="#0F172A" fill-opacity="0.08"/>
     <g transform="translate(902 41)" stroke="#0F172A" stroke-width="2.2" fill="none">
       <rect x="2" y="4" width="22" height="14" rx="3"/>
@@ -103,38 +109,60 @@
     </g>
     <text x="936" y="57" font-size="19" font-weight="700" fill="#0F172A">73%</text>
 
+    <!-- Disk Space window, opened by Explore -->
+    <g id="space-window">
+      <rect x="1002" y="112" width="162" height="358" rx="16" fill="#FFFFFF" filter="url(#soft)"/>
+      <path d="M1002 128a16 16 0 0 1 16 -16h130a16 16 0 0 1 16 16v20h-162z" fill="#F1F3FA"/>
+      <text x="1083" y="137" text-anchor="middle" font-size="18" font-weight="600" fill="#334155">Disk Space</text>
+      <g font-size="18" font-weight="600" fill="#FFFFFF">
+        <rect x="1012" y="158" width="142" height="128" rx="6" fill="#E5484D" fill-opacity="0.85"/>
+        <text x="1022" y="186">Movies</text>
+        <text x="1022" y="208" font-weight="400" fill-opacity="0.9">42 GB</text>
+        <rect x="1012" y="290" width="104" height="168" rx="6" fill="#30B0C7" fill-opacity="0.85"/>
+        <text x="1020" y="318">Developer</text>
+        <text x="1020" y="340" font-weight="400" fill-opacity="0.9">31 GB</text>
+        <rect x="1120" y="290" width="34" height="96" rx="6" fill="#FF9500" fill-opacity="0.85"/>
+        <rect x="1120" y="390" width="34" height="32" rx="6" fill="#34C759" fill-opacity="0.85"/>
+        <rect x="1120" y="426" width="34" height="32" rx="6" fill="#0A84FF" fill-opacity="0.85"/>
+      </g>
+    </g>
+
     <g filter="url(#card)">
       <path d="M932 80l12 -10 12 10z" fill="#FFFFFF"/>
-      <rect x="740" y="80" width="420" height="356" rx="22" fill="#FFFFFF"/>
+      <rect x="700" y="80" width="290" height="390" rx="22" fill="#FFFFFF"/>
     </g>
 
-    <g transform="translate(766 0)">
-      <text x="0" y="120" font-size="21" font-weight="700" fill="#0F172A">Memory Usage</text>
-      <text x="368" y="122" text-anchor="end" font-size="26" font-weight="800" fill="#EA8A0C">73%</text>
-      <rect x="0" y="134" width="368" height="10" rx="5" fill="#E6E9F4"/>
-      <rect x="0" y="134" width="269" height="10" rx="5" fill="url(#mem)"/>
-      <circle cx="6" cy="167" r="5" fill="#2563EB"/>
-      <text x="18" y="173" font-size="18" fill="#64748B">1.4 GB cleaned at 11:47</text>
+    <g transform="translate(722 0)">
+      <text x="0" y="118" font-size="21" font-weight="700" fill="#0F172A">Memory Usage</text>
+      <text x="246" y="120" text-anchor="end" font-size="26" font-weight="800" fill="#EA8A0C">73%</text>
+      <rect x="0" y="132" width="246" height="10" rx="5" fill="#E6E9F4"/>
+      <rect id="mem-fill" x="0" y="132" width="180" height="10" rx="5" fill="url(#mem)"/>
+      <circle cx="6" cy="165" r="5" fill="#2563EB"/>
+      <text x="18" y="171" font-size="18" fill="#64748B">1.4 GB cleaned at 11:47</text>
 
-      <g font-size="19" fill="#0F172A">
-        <rect x="0" y="192" width="22" height="22" rx="6" fill="#0A84FF"/>
-        <text x="34" y="210">Safari</text><text x="368" y="210" text-anchor="end" fill="#475569">4.5 GB</text>
-        <rect x="0" y="224" width="22" height="22" rx="6" fill="#1E293B"/>
-        <text x="34" y="242">Terminal</text><text x="368" y="242" text-anchor="end" fill="#475569">3.6 GB</text>
-        <rect x="0" y="256" width="22" height="22" rx="6" fill="#34C759"/>
-        <text x="34" y="274">Messages</text><text x="368" y="274" text-anchor="end" fill="#475569">640 MB</text>
+      <rect x="0" y="186" width="246" height="44" rx="12" fill="url(#btn)"/>
+      <text x="123" y="214" text-anchor="middle" font-size="19" font-weight="700" fill="#FFFFFF">Free up memory</text>
+
+      <text x="0" y="274" font-size="21" font-weight="700" fill="#0F172A">Disk Usage</text>
+      <text x="246" y="276" text-anchor="end" font-size="26" font-weight="800" fill="#E5484D">94%</text>
+      <g id="disk-bar">
+      <rect x="0" y="288" width="60" height="10" rx="5" fill="#30B0C7"/>
+      <rect x="64" y="288" width="34" height="10" rx="5" fill="#5856D6"/>
+      <rect x="102" y="288" width="22" height="10" rx="5" fill="#FF2D55"/>
+      <rect x="128" y="288" width="118" height="10" rx="5" fill="#FF9500"/>
       </g>
 
-      <rect x="0" y="294" width="368" height="44" rx="12" fill="url(#btn)"/>
-      <text x="184" y="322" text-anchor="middle" font-size="19" font-weight="700" fill="#FFFFFF">Free up memory</text>
+      <g font-size="19" fill="#0F172A">
+        <circle cx="7" cy="326" r="6" fill="#30B0C7"/>
+        <text x="22" y="332">Developer files</text><text x="246" y="332" text-anchor="end" fill="#475569">18 GB</text>
+        <circle cx="7" cy="360" r="6" fill="#5856D6"/>
+        <text x="22" y="366">Junk files</text><text x="246" y="366" text-anchor="end" fill="#475569">6.1 GB</text>
+        <circle cx="7" cy="394" r="6" fill="#FF2D55"/>
+        <text x="22" y="400">Installers</text><text x="246" y="400" text-anchor="end" fill="#475569">3.4 GB</text>
+      </g>
 
-      <text x="0" y="382" font-size="21" font-weight="700" fill="#0F172A">Disk Usage</text>
-      <text x="368" y="384" text-anchor="end" font-size="26" font-weight="800" fill="#E5484D">94%</text>
-      <rect x="0" y="396" width="72" height="10" rx="5" fill="#6366F1"/>
-      <rect x="78" y="396" width="26" height="10" rx="5" fill="#C026D3"/>
-      <rect x="110" y="396" width="224" height="10" rx="5" fill="#F59E0B"/>
-      <rect x="340" y="396" width="28" height="10" rx="5" fill="#FACC15"/>
+      <rect x="0" y="418" width="246" height="36" rx="10" fill="#FFFFFF" stroke="#C7CCFA" stroke-width="1.5"/>
+      <text x="123" y="442" text-anchor="middle" font-size="18" font-weight="600" fill="#3730A3">Explore</text>
     </g>
-
   </g>
 </svg>

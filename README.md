@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="./assets/readme/hero-light.svg" width="100%" alt="OpenMem: a free macOS menu bar app that shows live memory use and frees memory and disk space">
+  <img src="./assets/readme/hero.gif" width="100%" alt="OpenMem: a free macOS menu bar app that shows live memory use and frees memory and disk space">
 </p>
 
 <p align="center">

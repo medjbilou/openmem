@@ -1,0 +1,52 @@
+{
+  "width": 1200,
+  "fps": 30,
+  "duration": 6.0,
+  "colors": 256,
+  "dither": "none",
+  "clip_to_base_alpha": true,
+  "max_size_mb": 2.0,
+  "reveals": [
+    {
+      "id": "mem-fill",
+      "axis": "x",
+      "start": 0.3,
+      "end": 1.3,
+      "exit": {
+        "start": 5.2,
+        "end": 5.9
+      }
+    },
+    {
+      "id": "disk-bar",
+      "axis": "x",
+      "start": 0.8,
+      "end": 1.8,
+      "exit": {
+        "start": 5.2,
+        "end": 5.9
+      }
+    }
+  ],
+  "layers": [
+    {
+      "id": "space-window",
+      "enter": {
+        "start": 1.6,
+        "end": 2.6,
+        "from": [
+          0,
+          36
+        ]
+      },
+      "exit": {
+        "start": 5.2,
+        "end": 5.9,
+        "to": [
+          0,
+          24
+        ]
+      }
+    }
+  ]
+}
