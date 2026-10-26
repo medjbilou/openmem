@@ -33,6 +33,7 @@ enum Cat: String { case junk, downloads, dev, dups, apps, installers, large }
     @Published var lastCleanAt = ud.double(forKey: "lastCleanAt") { didSet { ud.set(lastCleanAt, forKey: "lastCleanAt") } }
 
     var onTick: (() -> Void)?
+    var openSpace: (() -> Void)?
     var panelVisible = false { didSet { if panelVisible { tick() } } }
     private var lastAuto = Date.distantPast
     private var wasHigh = false

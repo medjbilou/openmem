@@ -5,10 +5,12 @@ import Carbon
 import SwiftUI
 import UserNotifications
 
-@MainActor final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, UNUserNotificationCenterDelegate {
+@MainActor final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSWindowDelegate, UNUserNotificationCenterDelegate {
     let model = Model()
+    let space = SpaceModel()
     let popover = NSPopover()
     var item: NSStatusItem!
+    var spaceWindow: NSWindow?
 
     func applicationDidFinishLaunching(_ n: Notification) {
         item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -26,6 +28,8 @@ import UserNotifications
         popover.contentViewController = host
         popover.contentSize = NSSize(width: 360, height: 760)
         model.onTick = { [weak self] in self?.updateTitle() }
+        model.openSpace = { [weak self] in self?.openSpace() }
+        space.onTrash = { [weak self] in self?.model.rescan() }
         model.start()
         updateTitle()
         if CommandLine.arguments.contains("--open") { DispatchQueue.main.asyncAfter(deadline: .now() + 1) { self.toggle() } }
@@ -77,6 +81,25 @@ import UserNotifications
     }
 
     func popoverDidClose(_ n: Notification) { model.panelVisible = false }
+
+    func openSpace() {
+        if spaceWindow == nil {
+            let w = NSWindow(contentViewController: NSHostingController(rootView: SpaceView(s: space)))
+            w.title = "Disk Space"
+            w.setContentSize(NSSize(width: 1000, height: 660))
+            w.isReleasedWhenClosed = false
+            w.delegate = self
+            w.center()
+            spaceWindow = w
+        }
+        popover.performClose(nil)
+        NSApp.activate(ignoringOtherApps: true)
+        spaceWindow?.makeKeyAndOrderFront(nil)
+        if space.root == nil { space.scan(space.folder) }
+    }
+
+    // A home folder's tree holds about 150 MB: a memory app frees it when the window closes.
+    func windowWillClose(_ n: Notification) { space.root = nil; space.current = nil; space.selected = nil }
 
     // Accessory apps are always "foreground", so banners must be allowed explicitly.
     nonisolated func userNotificationCenter(_ c: UNUserNotificationCenter, willPresent n: UNNotification,

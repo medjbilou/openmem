@@ -167,6 +167,7 @@ struct DiskCard: View {
                     HStack {
                         Text("\(fmtDisk(d.available)) available of \(fmtDisk(d.total))").font(.caption).foregroundStyle(.secondary)
                         Spacer()
+                        Button("Explore") { m.openSpace?() }.controlSize(.small).help("See what takes up space, folder by folder")
                         Button(m.scanning ? "Scanning…" : "Rescan") { m.rescan() }.controlSize(.small).disabled(m.scanning)
                     }
                 }

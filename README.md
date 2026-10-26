@@ -34,6 +34,7 @@ All features are free. There is no Pro version, no trial, no license key, no acc
 - Start with your Mac: the launch agents and daemons that start at login or at boot, and who they run for. Items whose program no longer exists are marked, since an app you removed left them behind. A button opens Login Items settings to turn them off.
 - Installers: `.dmg`, `.iso`, `.pkg` and `.xip` files, which you usually no longer need after installing.
 - Large and old files: anything above a size you pick, plus files of 10 MB or more that you haven't opened in over a year.
+- Disk space map: click Explore to open a window that scans your home folder, including hidden files and `~/Library`, or any folder or external drive you choose. It shows a treemap you can click into, or a list sorted by size, with breadcrumbs to go back up (⌘↑ goes up one level). A bar splits the space by kind: apps, developer files, video, audio, images, archives and disk images, caches and logs, documents, and other. Select an item to see its size, how many files and folders it holds, its share of the folder, its dates, and the largest items inside. You can show it in Finder or move it to the Trash, but only inside the folders listed under [Your files stay safe](#your-files-stay-safe). Files under 1 MB in a folder are shown as one block. The window frees its memory when you close it.
 
 ### General
 
@@ -102,6 +103,7 @@ sudo rm /etc/sudoers.d/openmem
 | Per-app memory | The `proc_pid_rusage` physical footprint of each process, added up under the app that owns it. The app never starts `ps` or `top`. |
 | Free up memory | Three steps. First `sync` writes changed file data to disk. Then `memory_pressure -S -l warn` tells every app that memory is low for one second, so apps release memory and macOS drops purgeable caches. Last, `/usr/sbin/purge` empties the disk cache. Automatic cleanup skips `purge`, because the Mac can stall while the cache fills again. |
 | Disk scan | Runs in the background at low priority. One walk of your folders finds duplicates, large files, installers and developer folders. Duplicates are compared by size, then by their first 64 KB, then by a full SHA-256. |
+| Disk space map | Walks the folder with `contentsOfDirectory`, reading sizes and dates in bulk, with each top-level folder on its own thread. Symlinks aren't followed and other disks mounted inside are skipped. File kinds come from `UTType`. On a home folder with 2.2 million files the scan took 34 seconds and peaked at 195 MB. |
 | Cost | The menu bar makes one system call every 3 seconds. Per-app memory is only measured while the panel is open. |
 
 ### Measured footprint
@@ -117,7 +119,7 @@ Measured on an Apple Silicon Mac running macOS 26, with the app idle in the menu
 | Helper apps or launch agents | 0 |
 | Network connections | 0. The app never connects to the internet. |
 
-The code is about 1,100 lines of Swift in five files:
+The code is about 1,600 lines of Swift in six files:
 
 ```
 main.swift     menu bar item and panel
@@ -125,6 +127,7 @@ Memory.swift   memory stats, per-app memory, purge
 Disk.swift     disk scan, duplicate finder, safety rules
 Model.swift    state, settings, cleanup actions
 Views.swift    SwiftUI interface
+Space.swift    disk space map: folder tree, treemap, inspector
 ```
 
 ## Uninstall
