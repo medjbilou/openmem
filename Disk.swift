@@ -9,7 +9,12 @@ let home = fm.homeDirectoryForCurrentUser
 let cachesDir = home.appending(path: "Library/Caches")
 let downloadsDir = home.appending(path: "Downloads")
 let trashDir = home.appending(path: ".Trash")
-let userRoots = ["Desktop", "Documents", "Downloads", "Movies", "Music", "Pictures", "Developer", "Projects", "Code"].map { home.appending(path: $0) }
+// Developer, Projects and Code are folders people make themselves, often as symlinks: one pointing at home
+// would put all of home inside the trust boundary, so a symlinked one is skipped.
+let userRoots = ["Desktop", "Documents", "Downloads", "Movies", "Music", "Pictures"].map { home.appending(path: $0) }
+    + ["Developer", "Projects", "Code"].map { home.appending(path: $0) }.filter { !isSymlink($0) }
+
+func isSymlink(_ u: URL) -> Bool { (try? u.resourceValues(forKeys: [.isSymbolicLinkKey]))?.isSymbolicLink == true }
 let appRoots = [URL(fileURLWithPath: "/Applications"), home.appending(path: "Applications")]
 let ownID = Bundle.main.bundleIdentifier ?? "io.github.medjbilou.openmem"
 // Like Windows %TEMP%: the per-user temp folder, /tmp, and app logs. Not caches.
@@ -70,6 +75,7 @@ struct AppEntry: Identifiable {
 
 struct StartupItem: Identifiable {
     let url: URL, label: String, runs: String, missing: Bool
+    var program = ""
     var id: URL { url }
 }
 
@@ -97,18 +103,24 @@ struct DiskScan {
 // Trust boundary: nothing leaves these folders, roots themselves are never touched,
 // and everything goes to the Trash (recoverable). Only "Empty Trash" is permanent.
 enum Safety {
-    static let roots = ([cachesDir] + userRoots + appRoots + tempDirs + leftoverPatterns.map { home.appending(path: $0.dir) }
-                        + devCaches.filter(\.each).map { home.appending(path: $0.path) })
-        .map { $0.resolvingSymlinksInPath().path }
+    private static func resolved(_ urls: [URL]) -> [String] { urls.map { $0.resolvingSymlinksInPath().path } }
+    // Anything the user picks in the disk space map: user folders, apps and developer caches. Never ~/Library
+    // app data, caches or temp folders, where one click could take iPhone backups, browser profiles or a vault.
+    static let pickRoots = resolved(userRoots + appRoots + devCaches.filter(\.each).map { home.appending(path: $0.path) })
+    // The panel's lists add what they computed: caches, temp items, and an uninstalled app's support folders.
+    static let listRoots = pickRoots + resolved([cachesDir] + tempDirs + leftoverPatterns.map { home.appending(path: $0.dir) })
     // Whole folders that may go themselves, not only what is inside them.
-    static let exact = Set(devCaches.filter { !$0.each }.map { home.appending(path: $0.path).resolvingSymlinksInPath().path })
+    static let exact = Set(resolved(devCaches.filter { !$0.each }.map { home.appending(path: $0.path) }))
 
-    static func canTrash(_ url: URL) -> Bool {
+    static func canTrash(_ url: URL, picked: Bool = false) -> Bool {
         // Resolve the parent only, so a symlink item trashes the link, never its target.
         let p = url.deletingLastPathComponent().resolvingSymlinksInPath().appending(path: url.lastPathComponent).path
-        guard url.lastPathComponent != "..", exact.contains(p) || roots.contains(where: { p.hasPrefix($0 + "/") }) else { return false }
+        let roots = picked ? pickRoots : listRoots
+        guard url.lastPathComponent != "..", exact.contains(p) || roots.contains(where: { p.hasPrefix($0 + "/") }),
+              !p.split(separator: "/").contains(where: { $0.hasPrefix("com.apple.") }) else { return false }
         if appRoots.contains(where: { p.hasPrefix($0.path + "/") }) {
-            guard url.pathExtension == "app", let id = Bundle(url: url)?.bundleIdentifier, !id.hasPrefix("com.apple."), id != ownID else { return false }
+            guard url.pathExtension == "app", let id = Bundle(url: url)?.bundleIdentifier, !id.hasPrefix("com.apple."), id != ownID,
+                  !NSWorkspace.shared.runningApplications.contains(where: { $0.bundleIdentifier == id }) else { return false }
         }
         return true
     }
@@ -116,10 +128,10 @@ enum Safety {
 
 struct TrashResult { var moved = 0; var bytes: Int64 = 0; var failed: [String] = [] }
 
-func moveToTrash(_ items: [Item]) -> TrashResult {
+func moveToTrash(_ items: [Item], picked: Bool = false) -> TrashResult {
     var r = TrashResult()
     for i in items {
-        guard Safety.canTrash(i.url) else { r.failed.append(i.name); continue }
+        guard Safety.canTrash(i.url, picked: picked) else { r.failed.append(i.name); continue }
         let ok = i.url.pathExtension == "app" ? finderTrash(i.url) : (try? fm.trashItem(at: i.url, resultingItemURL: nil)) != nil
         if ok { r.moved += 1; r.bytes += i.size } else { r.failed.append(i.name) }
     }
@@ -200,7 +212,7 @@ func startupItems() -> [StartupItem] {
             let program = p["Program"] as? String ?? (p["ProgramArguments"] as? [String])?.first
             // A program that no longer exists was left behind by an app you removed.
             let missing = program.map { $0.hasPrefix("/") && !fm.fileExists(atPath: $0) } ?? false
-            return StartupItem(url: u, label: label, runs: runs, missing: missing)
+            return StartupItem(url: u, label: label, runs: runs, missing: missing, program: program ?? "")
         }
     }
 }
@@ -304,7 +316,7 @@ func scanDisk(largeMB: Double, runningIDs: Set<String>) -> DiskScan {
     s.apps = s.apps.map { a in
         AppEntry(url: a.url, name: a.name, bundleID: a.bundleID, size: a.size, leftovers: a.leftovers.filter { claims[$0.url.path.lowercased()] == 1 })
     }
-    s.orphans = orphanLeftovers(installed: Set(s.apps.map(\.bundleID)), running: runningIDs, claimed: Set(claims.keys))
+    s.orphans = orphanLeftovers(installed: Set(s.apps.map(\.bundleID)), running: runningIDs, claimed: Set(claims.keys), startup: s.startup)
     // An app's log folder counts once, under the app, not again under temporary files.
     s.temp.removeAll { claims[$0.url.path.lowercased()] != nil }
     s.apps.sort { $0.total > $1.total }
@@ -340,11 +352,10 @@ func appLeftovers(_ app: URL, _ id: String) -> [URL] {
 // helpers, whose IDs start with the app's) has, and that nothing changed for 30 days. Caches and logs are not
 // included: Junk Files already lists them. Nor are preferences: command-line tools and system services write
 // them too, and each is a few KB.
-func orphanLeftovers(installed: Set<String>, running: Set<String>, claimed: Set<String>) -> [Item] {
+// Helpers and updaters without an app bundle (launch agents) count as installed: their label or program names the ID.
+func orphanLeftovers(installed: Set<String>, running: Set<String>, claimed: Set<String>, startup: [StartupItem] = []) -> [Item] {
     let monthAgo = Date().addingTimeInterval(-30 * 86_400)
-    func lastChange(_ u: URL) -> Date {
-        ([u] + children(u)).compactMap { try? $0.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate }.max() ?? .distantFuture
-    }
+    let agents = startup.flatMap { [$0.label.lowercased(), $0.program.lowercased()] }
     return leftoverPatterns.filter { !["Library/Caches", "Library/Logs", "Library/Preferences"].contains($0.dir) }.flatMap { p in
         children(home.appending(path: p.dir)).compactMap { u -> Item? in
             let n = u.lastPathComponent
@@ -354,10 +365,25 @@ func orphanLeftovers(installed: Set<String>, running: Set<String>, claimed: Set<
                   !running.contains(id), !claimed.contains(u.path.lowercased()),
                   !installed.contains(where: { id == $0 || id.hasPrefix($0 + ".") }),
                   NSWorkspace.shared.urlForApplication(withBundleIdentifier: id) == nil,
+                  !agents.contains(where: { $0.contains(id.lowercased()) || $0.hasPrefix(id.lowercased()) || id.lowercased().hasPrefix($0 + ".") }),
                   lastChange(u) < monthAgo else { return nil }
             return Item(url: u, size: allocSize(u), note: String(p.dir.dropFirst("Library/".count)))
         }
     }.filter { $0.size > 0 }.sorted { $0.size > $1.size }
+}
+
+// Newest change anywhere inside, since a container keeps its live data a few levels down. A folder too big to
+// check counts as changed now, so it is never called unused.
+func lastChange(_ u: URL, limit: Int = 5_000) -> Date {
+    let k: URLResourceKey = .contentModificationDateKey
+    var newest = (try? u.resourceValues(forKeys: [k]))?.contentModificationDate ?? .distantFuture, n = 0
+    guard let e = fm.enumerator(at: u, includingPropertiesForKeys: [k], options: [], errorHandler: { _, _ in true }) else { return newest }
+    for case let f as URL in e {
+        n += 1
+        if n > limit { return Date() }
+        newest = max(newest, (try? f.resourceValues(forKeys: [k]))?.contentModificationDate ?? .distantPast)
+    }
+    return newest
 }
 
 // Temp items: owned by you, untouched for a day, with no socket or pipe inside (those belong to

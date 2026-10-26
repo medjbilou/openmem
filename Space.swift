@@ -229,12 +229,12 @@ func squarify(_ sizes: [Double], in r: CGRect) -> [CGRect] {
 
     func up() { if let p = current?.parent { current = p; selected = nil } }
 
-    func canTrash(_ n: Node) -> Bool { !scanning && !n.rest && n.parent != nil && Safety.canTrash(n.url) }
+    func canTrash(_ n: Node) -> Bool { !scanning && !n.rest && n.parent != nil && Safety.canTrash(n.url, picked: true) }
 
     func trash(_ n: Node) {
         guard canTrash(n), let p = n.parent,
               confirm("Move \(n.name) (\(fmtDisk(n.size))) to the Trash?", "You can restore it from the Trash until you empty it.") else { return }
-        guard moveToTrash([Item(url: n.url, size: n.size)]).moved == 1 else { status = "Could not move \(n.name) to the Trash"; return }
+        guard moveToTrash([Item(url: n.url, size: n.size)], picked: true).moved == 1 else { status = "Could not move \(n.name) to the Trash"; return }
         p.children.removeAll { $0 === n }
         // shortcut: kind totals are not split per folder, so they stay as scanned until the next scan.
         for a in sequence(first: p, next: { $0.parent }) {
@@ -458,7 +458,7 @@ struct Inspector: View {
                     Button("Quick Look") { Preview.show(n.url) }.keyboardShortcut("y", modifiers: .command).help("⌘Y")
                     Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([n.url]) }
                     Button("Move to Trash") { s.trash(n) }.disabled(!s.canTrash(n))
-                        .help(s.canTrash(n) ? "" : "OpenMem only removes items inside your user folders, caches, temporary folders and apps")
+                        .help(s.canTrash(n) ? "" : "From this map OpenMem only removes items inside your user folders, apps that aren't running, and developer caches")
                 }
             }.frame(maxWidth: .infinity, alignment: .leading)
         }
