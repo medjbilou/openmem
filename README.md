@@ -70,9 +70,9 @@ The safety rules live in code (`Safety` in `Disk.swift`), so the UI can't skip t
 - If two apps would claim the same support folder, neither uninstall removes it.
 - Git repositories, `node_modules` folders and Python virtualenvs are never searched for duplicates or large files. Inside a project only dependency and build folders appear, under Developer files; source files and `.git` never do. Generic folder names such as `build` count only next to a project file.
 - iCloud files that aren't downloaded to your Mac are skipped, so a scan never starts downloading them.
-- Downloads, developer files, duplicates, installers and large files are never cleaned in bulk. You tick each item yourself, and each row has a button that shows the file in Finder first.
+- Downloads, developer files, duplicates, installers and large files are never cleaned in bulk. Select all under Developer files ticks dependencies and caches only; generic `build`, `dist`, `out` and `target` folders are always ticked one by one. You tick each item yourself, and each row has a button that shows the file in Finder first.
 
-Run `./test.sh` to check these rules. It builds the disk code with `tests/main.swift`, which checks what may and may not be moved, and touches only a temporary folder.
+Run `./test.sh` to check these rules. It builds the app code with `tests/main.swift`, which checks what may and may not be moved, that an item changed since a scan is refused, that a trashed folder can't be trashed twice, and that very deep folders and odd launch agent files can't crash or hang a scan. It writes only to a temporary folder and one file in `~/Documents` that it deletes again, and it never moves anything to the Trash.
 
 ## Permissions
 
